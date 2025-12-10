@@ -1,0 +1,15 @@
+{
+  "name": "5sim-config-generator",
+  "version": "1.0.0",
+  "description": "Electron tool to buy numbers from 5SIM (API1) and generate phone+API lines.",
+  "main": "electron-main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "axios": "^1.7.0"
+  },
+  "devDependencies": {
+    "electron": "^32.0.0"
+  }
+}

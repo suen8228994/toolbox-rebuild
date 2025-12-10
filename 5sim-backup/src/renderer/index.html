@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>5SIM 手机 API 数据生成器</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>5SIM 手机 API 数据生成器</h1>
+      <p>使用 5SIM API1 协议，一键生成 <code>+1*******----url...</code> 配置行，直接喂给你的脚本使用。</p>
+    </header>
+
+    <main>
+      <section class="card">
+        <h2>基础配置</h2>
+        <div class="form-row">
+          <label>API1 协议 api_key（Deprecated API）：</label>
+          <input id="apiKey" type="text" placeholder="在 5SIM 个人中心里 API key API1 protocol 那一行" />
+        </div>
+
+        <div class="form-row">
+          <label>国家(country)：</label>
+          <select id="country">
+            <option value="usa">usa（美国）</option>
+            <option value="england">england（英国）</option>
+            <option value="canada">canada（加拿大）</option>
+            <option value="0">0（任意国家）</option>
+          </select>
+        </div>
+
+        <div class="form-row">
+          <label>服务(service)：</label>
+          <input id="service" type="text" placeholder="例如 amazon / other / ot" value="amazon" />
+        </div>
+
+        <div class="form-row">
+          <label>运营商(operator)：</label>
+          <select id="operator">
+            <option value="any">any（任意）</option>
+            <option value="virtual">virtual</option>
+            <option value="virtual18">virtual18</option>
+            <option value="virtual60">virtual60</option>
+          </select>
+        </div>
+
+        <div class="form-row">
+          <label>生成数量：</label>
+          <input id="count" type="number" min="1" max="20" value="3" />
+        </div>
+
+        <div class="form-row buttons">
+          <button id="btnGenerate">生成配置</button>
+          <span id="status"></span>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>结果（每一行就是一个“手机 api 数据”）</h2>
+        <textarea id="output" spellcheck="false" placeholder="+1*******----http://api1.5sim.net/stubs/handler_api.php?..."></textarea>
+        <div class="form-row">
+          <button id="btnCopy">复制全部到剪贴板</button>
+        </div>
+      </section>
+    </main>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>

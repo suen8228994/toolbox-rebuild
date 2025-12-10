@@ -1,0 +1,83 @@
+,
+        '5sim-sms-verification': {
+            title: '📱 5SIM短信验证',
+            html: `
+                <div class="tool-workspace">
+                    <!-- Top Bar -->
+                    <div class="workspace-header">
+                        <div class="header-tabs">
+                            <button class="header-tab active" data-tab="fivesim-generate">生成号码</button>
+                            <button class="header-tab" data-tab="fivesim-settings">API设置</button>
+                            <span class="tab-indicator">已生成: <span id="fivesim-count">0</span></span>
+                        </div>
+                        <div class="header-actions">
+                            <span class="platform-badge">5SIM API</span>
+                        </div>
+                    </div>
+
+                    <!-- Tab Content: Generate Numbers -->
+                    <div class="tab-content active" id="tab-fivesim-generate">
+                        <div class="content-section">
+                            <h3 class="section-title">生成虚拟号码</h3>
+                            <div class="form-grid">
+                                <div class="form-item">
+                                    <label>国家(country)</label>
+                                    <select id="fivesim-country">
+                                        <option value="usa">USA (美国)</option>
+                                        <option value="england">England (英国)</option>
+                                        <option value="canada">Canada (加拿大)</option>
+                                        <option value="0">任意国家</option>
+                                    </select>
+                                </div>
+                                <div class="form-item">
+                                    <label>服务(service)</label>
+                                    <input type="text" id="fivesim-service" placeholder="例如 amazon / other / ot" value="amazon">
+                                </div>
+                                <div class="form-item">
+                                    <label>运营商(operator)</label>
+                                    <select id="fivesim-operator">
+                                        <option value="any">任意</option>
+                                        <option value="virtual">virtual</option>
+                                        <option value="virtual18">virtual18</option>
+                                        <option value="virtual60">virtual60</option>
+                                    </select>
+                                </div>
+                                <div class="form-item">
+                                    <label>生成数量</label>
+                                    <input type="number" id="fivesim-count-input" min="1" max="20" value="3">
+                                </div>
+                            </div>
+                            <button class="btn btn-generate" id="btn-generate-fivesim">生成配置</button>
+                            <div id="fivesim-status" style="margin-top: 10px; color: var(--text-gray);"></div>
+                        </div>
+
+                        <!-- Results Display -->
+                        <div class="content-section" style="margin-top: 20px;">
+                            <h3 class="section-title">结果(每一行就是一个"手机+api数据")</h3>
+                            <textarea id="fivesim-output" spellcheck="false" placeholder="+1*******----http://api1.5sim.net/stubs/handler_api.php?..." style="width: 100%; min-height: 200px; background: rgba(0,0,0,0.3); color: var(--text-light); border: 1px solid rgba(102, 126, 234, 0.3); border-radius: 8px; padding: 15px; font-family: monospace; font-size: 13px; resize: vertical;"></textarea>
+                            <div style="margin-top: 10px;">
+                                <button class="btn btn-action" id="btn-copy-fivesim">复制全部到剪贴板</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab Content: API Settings -->
+                    <div class="tab-content" id="tab-fivesim-settings">
+                        <div class="content-section">
+                            <h3 class="section-title">API配置</h3>
+                            <div class="form-item" style="max-width: 600px;">
+                                <label>API1 协议 api_key (Deprecated API)</label>
+                                <input type="text" id="fivesim-apikey" placeholder="在 5SIM 个人中心找 API key API1 protocol 那一行" style="width: 100%;">
+                                <small style="display: block; margin-top: 5px; color: var(--text-gray);">
+                                    提示: API Key 会自动保存到本地，下次打开会自动加载
+                                </small>
+                            </div>
+                            <div style="margin-top: 15px;">
+                                <button class="btn btn-action" id="btn-save-fivesim-apikey">保存 API Key</button>
+                                <button class="btn btn-action" id="btn-clear-fivesim-apikey">清除 API Key</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `
+        }

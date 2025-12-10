@@ -1,0 +1,268 @@
+﻿import {
+  WebSocketGateway,
+  WebSocketServer,
+  SubscribeMessage,
+  OnGatewayConnection,
+  OnGatewayDisconnect,
+  ConnectedSocket,
+  MessageBody,
+} from '@nestjs/websockets';
+import { Server, Socket } from 'socket.io';
+import { TaskSchedulerService } from '../services/task-scheduler.service';
+import { FivesimService } from '../services/fivesim.service';
+
+@WebSocketGateway({
+  cors: {
+    origin: '*',
+  },
+})
+export class TaskGateway implements OnGatewayConnection, OnGatewayDisconnect {
+  @WebSocketServer()
+  server: Server;
+
+  constructor(
+    private readonly taskSchedulerService: TaskSchedulerService,
+    private readonly fivesimService: FivesimService,
+  ) {}
+
+  handleConnection(client: Socket) {
+    console.log(`Client connected: ${client.id}`);
+  }
+
+  handleDisconnect(client: Socket) {
+    console.log(`Client disconnected: ${client.id}`);
+  }
+
+  @SubscribeMessage('task.start')
+  async handleTaskStart(@ConnectedSocket() client: Socket, @MessageBody() data: any) {
+    console.log('Task start requested:', data);
+    await this.taskSchedulerService.scheduler(data, client);
+    return { success: true };
+  }
+
+  @SubscribeMessage('task.stop')
+  handleTaskStop(@ConnectedSocket() client: Socket) {
+    console.log('Task stop requested');
+    client.emit('backend.task.runState', 'stop');
+    return { success: true };
+  }
+
+  @SubscribeMessage('task.config')
+  handleTaskConfig(@ConnectedSocket() client: Socket, @MessageBody() data: any) {
+    console.log('Task config updated:', data);
+    return { success: true };
+  }
+
+  @SubscribeMessage('response.card.info')
+  handleCardInfo(@ConnectedSocket() client: Socket, @MessageBody() data: any) {
+    // Forward card info to task worker
+    return { success: true };
+  }
+
+  @SubscribeMessage('request.card.info')
+  handleRequestCardInfo(@ConnectedSocket() client: Socket, @MessageBody() data: any) {
+    console.log('Card generation requested:', data);
+    
+    const { prefix = '', quantity = 1000, expiry = { month: '12', year: '2025' } } = data || {};
+    
+    try {
+      // Generate virtual credit card numbers
+      const cards = [];
+      for (let i = 0; i < quantity; i++) {
+        // Generate 16-digit card number with prefix
+        const prefixLength = prefix.length;
+        const remainingLength = 16 - prefixLength - 1; // -1 for check digit
+        
+        let cardNumber = prefix;
+        for (let j = 0; j < remainingLength; j++) {
+          cardNumber += Math.floor(Math.random() * 10);
+        }
+        
+        // Add Luhn check digit
+        cardNumber += this.calculateLuhnCheckDigit(cardNumber);
+        
+        // Format: cardNumber|month|year|cvv
+        const cvv = String(Math.floor(Math.random() * 900) + 100);
+        const cardLine = `${cardNumber}|${expiry.month}|${expiry.year}|${cvv}`;
+        cards.push(cardLine);
+      }
+      
+      client.emit('run.task.log', { 
+        message: `Successfully generated ${cards.length} cards`, 
+        logID: 'CardGen-Success' 
+      });
+      
+      client.emit('response.card.info', { 
+        success: true, 
+        cards,
+        count: cards.length 
+      });
+      
+    } catch (error) {
+      client.emit('run.task.log', { 
+        message: `Card generation failed: ${error.message}`, 
+        logID: 'CardGen-Error' 
+      });
+      client.emit('response.card.info', { 
+        success: false, 
+        error: error.message 
+      });
+    }
+    
+    return { success: true };
+  }
+  
+  // Luhn algorithm for credit card check digit
+  private calculateLuhnCheckDigit(cardNumber: string): number {
+    let sum = 0;
+    let shouldDouble = true;
+    
+    for (let i = cardNumber.length - 1; i >= 0; i--) {
+      let digit = parseInt(cardNumber[i]);
+      
+      if (shouldDouble) {
+        digit *= 2;
+        if (digit > 9) {
+          digit -= 9;
+        }
+      }
+      
+      sum += digit;
+      shouldDouble = !shouldDouble;
+    }
+    
+    return (10 - (sum % 10)) % 10;
+  }
+
+  @SubscribeMessage('request.prepare.data')
+  handleRequestPrepareData(@ConnectedSocket() client: Socket) {
+    console.log('Data preparation requested');
+    client.emit('run.task.log', { message: '姝ｅ湪鍑嗗娉ㄥ唽鏁版嵁...', logID: 'PrepData-Info' });
+    
+    // Simulate data preparation
+    setTimeout(() => {
+      client.emit('run.task.log', { message: 'Email data loaded', logID: 'PrepData-Email' });
+    }, 500);
+    
+    setTimeout(() => {
+      client.emit('run.task.log', { message: 'Address data generated', logID: 'PrepData-Address' });
+    }, 1000);
+    
+    setTimeout(() => {
+      client.emit('run.task.log', { message: '鏁版嵁鍑嗗瀹屾垚', logID: 'PrepData-Success' });
+      client.emit('backend.data.prepared', { success: true });
+    }, 1500);
+    
+    return { success: true };
+  }
+
+  @SubscribeMessage('request.generate.proxy')
+  handleRequestGenerateProxy(@ConnectedSocket() client: Socket, @MessageBody() data: any) {
+    console.log('Proxy generation requested:', data);
+    
+    const { country = 'US', quantity = 100, prefix = '', password = '' } = data || {};
+    
+    try {
+      // Generate proxy configurations
+      const proxies = [];
+      const countryIPRanges = {
+        'US': '192.168',
+        'UK': '172.16',
+        'CA': '10.0',
+        'AU': '192.169',
+        'DE': '172.17',
+        'FR': '10.1',
+        'JP': '192.170'
+      };
+      
+      const ipPrefix = countryIPRanges[country] || '192.168';
+      
+      for (let i = 0; i < quantity; i++) {
+        const octet3 = Math.floor(Math.random() * 256);
+        const octet4 = Math.floor(Math.random() * 256);
+        const ip = `${ipPrefix}.${octet3}.${octet4}`;
+        const port = Math.floor(Math.random() * 10000) + 10000; // Port range 10000-20000
+        const username = prefix ? `${prefix}_user${i + 1}` : `user${i + 1}`;
+        const pwd = password || `pass${Math.random().toString(36).substring(7)}`;
+        
+        // Format: IP:Port:Username:Password
+        const proxyLine = `${ip}:${port}:${username}:${pwd}`;
+        proxies.push(proxyLine);
+      }
+      
+      client.emit('run.task.log', { 
+        message: `Successfully generated ${proxies.length} proxies for ${country}`, 
+        logID: 'ProxyGen-Success' 
+      });
+      
+      client.emit('response.proxy.info', { 
+        success: true, 
+        proxies,
+        count: proxies.length,
+        country 
+      });
+      
+    } catch (error) {
+      client.emit('run.task.log', { 
+        message: `Proxy generation failed: ${error.message}`, 
+        logID: 'ProxyGen-Error' 
+      });
+      client.emit('response.proxy.info', { 
+        success: false, 
+        error: error.message 
+      });
+    }
+    
+    return { success: true };
+  }
+
+  @SubscribeMessage('response.email.info')
+  handleEmailInfo(@ConnectedSocket() client: Socket, @MessageBody() data: any) {
+    // Forward email info to task worker
+    return { success: true };
+  }
+
+  @SubscribeMessage('response.phone.info')
+  handlePhoneInfo(@ConnectedSocket() client: Socket, @MessageBody() data: any) {
+    // Forward phone info to task worker
+    return { success: true };
+  }
+
+
+  // ==================== 5SIM Integration ====================
+
+  @SubscribeMessage('request.fivesim.buyNumber')
+  async handleFivesimBuyNumber(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: any,
+  ) {
+    try {
+      const { apiKey, country, service, operator, count } = data;
+
+      console.log('5sim buy number requested:', { country, service, operator, count });
+
+      const result = await this.fivesimService.buyMultipleNumbers(
+        apiKey,
+        country,
+        service,
+        operator,
+        count || 1,
+      );
+
+      client.emit('response.fivesim.buyNumber', {
+        success: true,
+        lines: result.lines,
+        errors: result.errors,
+      });
+
+      return { success: true };
+    } catch (error) {
+      console.error('5sim buy number error:', error);
+      client.emit('response.fivesim.buyNumber', {
+        success: false,
+        error: error.message || 'Failed to buy number',
+      });
+      return { success: false, error: error.message };
+    }
+  }
+}

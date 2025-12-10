@@ -1,0 +1,29 @@
+{
+  "name": "toolbox-rebuild",
+  "version": "1.0.0",
+  "description": "Complete Toolbox Application - NestJS Backend + Electron Frontend",
+  "private": true,
+  "scripts": {
+    "install:backend": "cd backend && npm install",
+    "install:frontend": "cd frontend && npm install",
+    "install:all": "npm run install:backend && npm run install:frontend",
+    "build:backend": "cd backend && npm run build",
+    "start:backend": "cd backend && npm start",
+    "start:frontend": "cd frontend && npm start",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "start": "concurrently \"npm run start:backend\" \"npm run start:frontend\"",
+    "postinstall": "npm run install:all"
+  },
+  "keywords": [
+    "toolbox",
+    "nestjs",
+    "electron",
+    "amazon"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  }
+}

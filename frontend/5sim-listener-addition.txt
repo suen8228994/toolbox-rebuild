@@ -1,0 +1,168 @@
+
+// Setup 5SIM listeners
+function setup5simListeners() {
+    const modal = document.getElementById('tool-modal');
+    if (!modal) return;
+
+    // Tab switching
+    const tabs = modal.querySelectorAll('.header-tab');
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            const targetTab = tab.getAttribute('data-tab');
+            
+            // Update tab states
+            tabs.forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            
+            // Update content visibility
+            const tabContents = modal.querySelectorAll('.tab-content');
+            tabContents.forEach(content => {
+                content.classList.remove('active');
+                content.style.display = 'none';
+            });
+            
+            const targetContent = modal.querySelector(`#tab-${targetTab}`);
+            if (targetContent) {
+                targetContent.classList.add('active');
+                targetContent.style.display = 'block';
+            }
+        });
+    });
+
+    // Load saved API key from localStorage
+    const apiKeyInput = modal.querySelector('#fivesim-apikey');
+    if (apiKeyInput) {
+        const savedApiKey = localStorage.getItem('fivesimApiKey') || '';
+        apiKeyInput.value = savedApiKey;
+    }
+
+    // Save API Key button
+    const btnSaveApiKey = modal.querySelector('#btn-save-fivesim-apikey');
+    if (btnSaveApiKey) {
+        btnSaveApiKey.addEventListener('click', () => {
+            const apiKey = modal.querySelector('#fivesim-apikey').value.trim();
+            if (!apiKey) {
+                alert('请先填写 API Key');
+                return;
+            }
+            localStorage.setItem('fivesimApiKey', apiKey);
+            alert('API Key 已保存到本地');
+        });
+    }
+
+    // Clear API Key button
+    const btnClearApiKey = modal.querySelector('#btn-clear-fivesim-apikey');
+    if (btnClearApiKey) {
+        btnClearApiKey.addEventListener('click', () => {
+            if (confirm('确定要清除保存的 API Key 吗?')) {
+                localStorage.removeItem('fivesimApiKey');
+                const apiKeyInput = modal.querySelector('#fivesim-apikey');
+                if (apiKeyInput) apiKeyInput.value = '';
+                alert('API Key 已清除');
+            }
+        });
+    }
+
+    // Generate 5SIM numbers button
+    const btnGenerate = modal.querySelector('#btn-generate-fivesim');
+    if (btnGenerate) {
+        btnGenerate.addEventListener('click', async () => {
+            const apiKey = modal.querySelector('#fivesim-apikey').value.trim();
+            if (!apiKey) {
+                alert('请先在 API设置 标签页填写 API Key');
+                return;
+            }
+
+            const country = modal.querySelector('#fivesim-country').value;
+            const service = modal.querySelector('#fivesim-service').value.trim();
+            const operator = modal.querySelector('#fivesim-operator').value;
+            const count = Math.max(1, Math.min(20, parseInt(modal.querySelector('#fivesim-count-input').value || '1', 10)));
+
+            if (!service) {
+                alert('请填写 service(产品代号),例如 amazon / other / ot');
+                return;
+            }
+
+            const outputArea = modal.querySelector('#fivesim-output');
+            const statusSpan = modal.querySelector('#fivesim-status');
+            const countDisplay = modal.querySelector('#fivesim-count');
+
+            if (outputArea) outputArea.value = '';
+            if (statusSpan) {
+                statusSpan.textContent = '正在向 5SIM 请求号码，请稍等...';
+                statusSpan.style.color = 'var(--primary-color)';
+            }
+
+            console.log('Requesting 5SIM numbers:', { country, service, operator, count });
+
+            if (!window.appSocket) {
+                alert('WebSocket未连接，请检查后端服务');
+                if (statusSpan) {
+                    statusSpan.textContent = 'WebSocket未连接';
+                    statusSpan.style.color = 'var(--error-color)';
+                }
+                return;
+            }
+
+            // Emit request to backend
+            window.appSocket.emit('request.fivesim.buyNumber', {
+                apiKey,
+                country,
+                service,
+                operator,
+                count
+            });
+
+            // Listen for response (only once)
+            const responseHandler = (data) => {
+                console.log('5SIM response:', data);
+                
+                if (data.success) {
+                    if (outputArea) outputArea.value = data.lines.join('\n');
+                    if (statusSpan) {
+                        statusSpan.textContent = `成功生成 ${data.lines.length} 个号码`;
+                        statusSpan.style.color = 'var(--success-color)';
+                    }
+                    if (countDisplay) countDisplay.textContent = data.lines.length;
+                    
+                    if (data.errors && data.errors.length > 0) {
+                        console.warn('Some requests failed:', data.errors);
+                    }
+                } else {
+                    alert('生成失败: ' + (data.error || '未知错误'));
+                    if (statusSpan) {
+                        statusSpan.textContent = '生成失败: ' + (data.error || '未知错误');
+                        statusSpan.style.color = 'var(--error-color)';
+                    }
+                }
+                
+                // Remove listener after handling
+                window.appSocket.off('response.fivesim.buyNumber', responseHandler);
+            };
+
+            window.appSocket.on('response.fivesim.buyNumber', responseHandler);
+        });
+    }
+
+    // Copy to clipboard button
+    const btnCopy = modal.querySelector('#btn-copy-fivesim');
+    if (btnCopy) {
+        btnCopy.addEventListener('click', async () => {
+            const outputArea = modal.querySelector('#fivesim-output');
+            const text = outputArea ? outputArea.value : '';
+            
+            if (!text.trim()) {
+                alert('没有内容可以复制');
+                return;
+            }
+            
+            try {
+                await navigator.clipboard.writeText(text);
+                alert('已复制到剪贴板');
+            } catch (err) {
+                console.error('Copy failed:', err);
+                alert('复制失败，可以手动 Ctrl+C');
+            }
+        });
+    }
+}

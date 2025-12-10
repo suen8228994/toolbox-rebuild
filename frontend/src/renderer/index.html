@@ -1,0 +1,162 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Toolbox - 多功能工具箱</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/particles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- 顶部导航栏 -->
+        <header class="header">
+            <div class="header-content">
+                <h1 class="logo">🧰 Toolbox</h1>
+                <nav class="nav-tabs">
+                    <button class="nav-tab active" data-tab="batch-tasks">批量任务</button>
+                    <button class="nav-tab" data-tab="other-tools">其他工具</button>
+                </nav>
+                <div class="header-status">
+                    <span class="status-indicator"></span>
+                    <span class="status-text">就绪</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- 主内容区域 -->
+        <main class="main-content">
+            <!-- 批量任务面板 -->
+            <div class="tab-panel active" id="batch-tasks">
+                <div class="panel-header">
+                    <h2>📦 批量任务管理</h2>
+                    <p>Amazon 账号批量操作工具</p>
+                </div>
+                
+                <div class="tools-grid">
+                    <div class="tool-card" data-tool="amazon-check-live">
+                        <div class="card-icon">🔍</div>
+                        <h3>亚马逊批量测活</h3>
+                        <p>批量检测 Amazon 账号存活状态，支持代理和并发配置</p>
+                        <div class="card-status">
+                            <span class="status-dot active"></span>
+                            <span>可用</span>
+                        </div>
+                    </div>
+
+                    <div class="tool-card" data-tool="amazon-register">
+                        <div class="card-icon">📝</div>
+                        <h3>亚马逊批量注册</h3>
+                        <p>批量注册 Amazon 新账号，支持多种邮箱类型和验证方式</p>
+                        <div class="card-status">
+                            <span class="status-dot active"></span>
+                            <span>可用</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 其他工具面板 -->
+            <div class="tab-panel" id="other-tools">
+                <div class="panel-header">
+                    <h2>🛠️ 实用工具集</h2>
+                    <p>各类辅助工具</p>
+                </div>
+                
+                <div class="tools-grid">
+                    <div class="tool-card" data-tool="cookie-transformer">
+                        <div class="card-icon">🍪</div>
+                        <h3>Cookie转换</h3>
+                        <p>支持 Netscape、JSON、Header 等多种 Cookie 格式互转</p>
+                        <div class="card-status">
+                            <span class="status-dot active"></span>
+                            <span>可用</span>
+                        </div>
+                    </div>
+                    <div class="tool-card" data-tool="roxybrowser-to-hubstudio">
+                        <div class="card-icon">🔄</div>
+                        <h3>Roxy转HubStudio</h3>
+                        <p>RoxyBrowser 浏览器配置转换为 HubStudio 格式</p>
+                        <div class="card-status">
+                            <span class="status-dot active"></span>
+                            <span>可用</span>
+                        </div>
+                    </div>
+                    <div class="tool-card" data-tool="qrcode-generation">
+                        <div class="card-icon">📱</div>
+                        <h3>小火箭二维码生成</h3>
+                        <p>生成 Shadowrocket 代理配置二维码，快速导入</p>
+                        <div class="card-status">
+                            <span class="status-dot active"></span>
+                            <span>可用</span>
+                        </div>
+                    </div>
+                    <div class="tool-card" data-tool="microsoft-email">
+                        <div class="card-icon">📧</div>
+                        <h3>微软邮箱取软</h3>
+                        <p>自动获取 Microsoft 邮箱中的验证码和邮件</p>
+                        <div class="card-status">
+                            <span class="status-dot active"></span>
+                            <span>可用</span>
+                        </div>
+                    </div>
+                      
+            </div>
+        </main>
+
+        <!-- 底部状态栏 -->
+        <footer class="footer">
+            <div class="footer-content">
+                <div class="footer-left">
+                    <span>Toolbox v1.0.0</span>
+                    <span class="separator">|</span>
+                    <span>NestJS + Electron</span>
+                </div>
+                <div class="footer-right">
+                    <span id="connection-status">🔌 连接中...</span>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- 工具详情模态框 -->
+    <div class="modal" id="tool-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-title">工具详情</h2>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <!-- 动态内容 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 日志面板 -->
+    <div class="log-panel" id="log-panel">
+        <div class="log-header">
+            <h3>📝 任务日志</h3>
+            <div class="log-controls">
+                <button class="btn-clear-log">清空</button>
+                <button class="btn-close-log">关闭</button>
+            </div>
+        </div>
+        <div class="log-content" id="log-content">
+            <div class="log-item info">
+                <span class="log-time">[12:00:00]</span>
+                <span class="log-message">系统就绪，等待任务...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 引入 Socket.IO -->
+    <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+    <!-- 引入 Particles.js -->
+    <script src="https://cdn.jsdelivr.net/particles.js/2.0.0/particles.min.js"></script>
+    <!-- 主脚本 -->
+    <script src="js/tools.js"></script>
+    <script src="js/main.js"></script>
+    <script src="js/particles-config.js"></script>
+</body>
+</html>
+
