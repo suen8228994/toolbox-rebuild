@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Toolbox - 多功能工具箱</title>
+    <title>CvvUtils - 多功能工具箱</title>
     <link rel="stylesheet" href="css/styles.css">
     <link rel="stylesheet" href="css/particles.css">
 </head>
@@ -12,7 +12,7 @@
         <!-- 顶部导航栏 -->
         <header class="header">
             <div class="header-content">
-                <h1 class="logo">🧰 Toolbox</h1>
+                <h1 class="logo">🧰 CvvUtils</h1>
                 <nav class="nav-tabs">
                     <button class="nav-tab active" data-tab="batch-tasks">批量任务</button>
                     <button class="nav-tab" data-tab="other-tools">其他工具</button>
@@ -91,6 +91,33 @@
                             <span>可用</span>
                         </div>
                     </div>
+                    <div class="tool-card" data-tool="proxy-generation">
+                        <div class="card-icon">🌐</div>
+                        <h3>生成代理</h3>
+                        <p>批量生成测试代理配置，支持多国家选择</p>
+                        <div class="card-status">
+                            <span class="status-dot active"></span>
+                            <span>可用</span>
+                        </div>
+                    </div>
+                    <div class="tool-card" data-tool="screen-recorder">
+                        <div class="card-icon">🎬</div>
+                        <h3>屏幕录制</h3>
+                        <p>录制桌面或窗口屏幕，支持音频录制</p>
+                        <div class="card-status">
+                            <span class="status-dot active"></span>
+                            <span>可用</span>
+                        </div>
+                    </div>
+                    <div class="tool-card" data-tool="microsoft-email-extract">
+                        <div class="card-icon">📬</div>
+                        <h3>微软邮箱提取</h3>
+                        <p>使用 Client ID 和 Refresh Token 提取邮箱最新邮件</p>
+                        <div class="card-status">
+                            <span class="status-dot active"></span>
+                            <span>可用</span>
+                        </div>
+                    </div>
                     <div class="tool-card" data-tool="microsoft-email">
                         <div class="card-icon">📧</div>
                         <h3>微软邮箱取软</h3>
@@ -100,7 +127,43 @@
                             <span>可用</span>
                         </div>
                     </div>
-                      
+                    <div class="tool-card" data-tool="ms-graph-oauth">
+                        <div class="card-icon">🔑</div>
+                        <h3>微软账号授权</h3>
+                        <p>获取Microsoft账号的Refresh Token</p>
+                        <div class="card-status">
+                            <span class="status-dot active"></span>
+                            <span>可用</span>
+                        </div>
+                    </div>
+                    <div class="tool-card" data-tool="5sim-sms-verification">
+                        <div class="card-icon">📱</div>
+                        <h3>5SIM短信验证</h3>
+                        <p>使用5SIM API生成虚拟号码接收验证码</p>
+                        <div class="card-status">
+                            <span class="status-dot active"></span>
+                            <span>可用</span>
+                        </div>
+                    </div>
+                    <div class="tool-card" data-tool="hotmail-batch-register">
+                        <div class="card-icon">📧</div>
+                        <h3>Hotmail批量注册</h3>
+                        <p>批量注册Outlook邮箱并自动获取refresh_token</p>
+                        <div class="card-status">
+                            <span class="status-dot active"></span>
+                            <span>可用</span>
+                        </div>
+                    </div>
+                    <div class="tool-card" onclick="window.location.href='account-import.html'">
+                        <div class="card-icon">📥</div>
+                        <h3>批量导入邮箱</h3>
+                        <p>导入已有邮箱账号并验证，支持多种格式</p>
+                        <div class="card-status">
+                            <span class="status-dot active"></span>
+                            <span>可用</span>
+                        </div>
+                    </div>
+                </div>
             </div>
         </main>
 
@@ -108,7 +171,7 @@
         <footer class="footer">
             <div class="footer-content">
                 <div class="footer-left">
-                    <span>Toolbox v1.0.0</span>
+                    <span>CvvUtils v1.0.0</span>
                     <span class="separator">|</span>
                     <span>NestJS + Electron</span>
                 </div>
@@ -153,10 +216,34 @@
     <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
     <!-- 引入 Particles.js -->
     <script src="https://cdn.jsdelivr.net/particles.js/2.0.0/particles.min.js"></script>
+    
+    <!-- 错误捕获 -->
+    <script>
+        window.addEventListener('error', function(e) {
+            console.error('=== 页面全局错误 ===');
+            console.error('消息:', e.message);
+            console.error('文件:', e.filename);
+            console.error('行号:', e.lineno);
+            console.error('列号:', e.colno);
+            console.error('错误对象:', e.error);
+        });
+    </script>
+    
     <!-- 主脚本 -->
-    <script src="js/tools.js"></script>
-    <script src="js/main.js"></script>
-    <script src="js/particles-config.js"></script>
+    <script src="js/tools.js" onerror="console.error('❌ tools.js 加载失败！')"></script>
+    <script src="js/microsoftEmailExtract.js" onerror="console.error('❌ microsoftEmailExtract.js 加载失败！')"></script>
+    <script src="js/proxyGeneration.js" onerror="console.error('❌ proxyGeneration.js 加载失败！')"></script>
+    <script src="js/amazonRegister.js" onerror="console.error('❌ amazonRegister.js 加载失败！')"></script>
+    <script>
+        if (typeof window.getToolContent !== 'function') {
+            console.error('❌ tools.js 加载后 window.getToolContent 仍然不存在！');
+            console.error('可能的原因：1) tools.js 执行出错  2) 函数定义在错误的位置');
+        } else {
+            console.log('✅ tools.js 加载成功, window.getToolContent 可用');
+        }
+    </script>
+    <script src="js/main.js" onerror="console.error('❌ main.js 加载失败！')"></script>
+    <script src="js/particles-config.js" onerror="console.error('❌ particles-config.js 加载失败！')"></script>
 </body>
 </html>
 

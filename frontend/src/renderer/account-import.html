@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>批量导入邮箱账号</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+    }
+    
+    .import-container {
+      max-width: 1200px;
+      margin: 40px auto;
+      padding: 30px;
+      background: rgba(255, 255, 255, 0.95);
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    }
+    
+    .step-tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 30px;
+      border-bottom: 2px solid #e0e0e0;
+    }
+    
+    .step-tab {
+      padding: 12px 24px;
+      border: none;
+      background: transparent;
+      color: #666;
+      cursor: pointer;
+      font-size: 16px;
+      transition: all 0.3s;
+      border-bottom: 3px solid transparent;
+      margin-bottom: -2px;
+    }
+    
+    .step-tab.active {
+      color: #007bff;
+      border-bottom-color: #007bff;
+      font-weight: bold;
+    }
+    
+    .step-content {
+      display: none;
+    }
+    
+    .step-content.active {
+      display: block;
+    }
+    
+    .format-guide {
+      background: #f8f9fa;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+    
+    .format-example {
+      background: #fff;
+      padding: 15px;
+      border-left: 4px solid #007bff;
+      margin: 10px 0;
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+      overflow-x: auto;
+    }
+    
+    .import-textarea {
+      width: 100%;
+      min-height: 200px;
+      padding: 15px;
+      border: 2px solid #ddd;
+      border-radius: 8px;
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+      resize: vertical;
+    }
+    
+    .import-textarea:focus {
+      outline: none;
+      border-color: #007bff;
+    }
+    
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    
+    .btn {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      transition: all 0.3s;
+    }
+    
+    .btn-primary {
+      background: #007bff;
+      color: white;
+    }
+    
+    .btn-primary:hover {
+      background: #0056b3;
+    }
+    
+    .btn-secondary {
+      background: #6c757d;
+      color: white;
+    }
+    
+    .btn-secondary:hover {
+      background: #545b62;
+    }
+    
+    .accounts-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    
+    .accounts-table th,
+    .accounts-table td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+    }
+    
+    .accounts-table th {
+      background: #f8f9fa;
+      font-weight: bold;
+    }
+    
+    .status-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    
+    .status-valid {
+      background: #d4edda;
+      color: #155724;
+    }
+    
+    .status-invalid {
+      background: #f8d7da;
+      color: #721c24;
+    }
+    
+    .status-pending {
+      background: #fff3cd;
+      color: #856404;
+    }
+    
+    .progress-bar {
+      width: 100%;
+      height: 30px;
+      background: #f0f0f0;
+      border-radius: 15px;
+      overflow: hidden;
+      margin: 20px 0;
+    }
+    
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #007bff 0%, #0056b3 100%);
+      transition: width 0.3s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: bold;
+    }
+    
+    .file-drop-zone {
+      border: 3px dashed #ccc;
+      border-radius: 12px;
+      padding: 60px 40px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s;
+      margin-bottom: 20px;
+    }
+    
+    .file-drop-zone:hover,
+    .file-drop-zone.drag-over {
+      border-color: #007bff;
+      background: #f0f8ff;
+    }
+    
+    .file-drop-zone input[type="file"] {
+      display: none;
+    }
+    
+    .log-console {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 15px;
+      border-radius: 8px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      max-height: 300px;
+      overflow-y: auto;
+      margin-top: 20px;
+    }
+    
+    .log-entry {
+      margin: 3px 0;
+      padding: 2px 0;
+    }
+    
+    .log-info { color: #4fc3f7; }
+    .log-success { color: #81c784; }
+    .log-error { color: #e57373; }
+    .log-warning { color: #ffb74d; }
+  </style>
+</head>
+<body>
+  
+  <div class="import-container">
+    <h1 style="margin-bottom: 30px;">📥 批量导入邮箱账号</h1>
+    
+    <div class="step-tabs">
+      <button class="step-tab active" data-step="input">1. 输入账号</button>
+      <button class="step-tab" data-step="parse">2. 解析验证</button>
+      <button class="step-tab" data-step="validate">3. 批量验证</button>
+      <button class="step-tab" data-step="save">4. 保存入库</button>
+    </div>
+    
+    <!-- Step 1: Input -->
+    <div class="step-content active" id="step-input">
+      <div class="format-guide">
+        <h3>📋 支持的格式</h3>
+        <p>支持以下几种格式导入账号：</p>
+        
+        <div class="format-example">
+          <strong>格式1：冒号分隔</strong><br>
+          example1@outlook.com:Password123<br>
+          example2@hotmail.com:Password456
+        </div>
+        
+        <div class="format-example">
+          <strong>格式2：四横线分隔</strong><br>
+          example1@outlook.com----Password123<br>
+          example2@hotmail.com----Password456
+        </div>
+        
+        <div class="format-example">
+          <strong>格式3：竖线分隔</strong><br>
+          example1@outlook.com|Password123<br>
+          example2@hotmail.com|Password456
+        </div>
+        
+        <div class="format-example">
+          <strong>格式4：CSV格式</strong><br>
+          email,password<br>
+          example1@outlook.com,Password123<br>
+          example2@hotmail.com,Password456
+        </div>
+        
+        <div class="format-example">
+          <strong>格式5：JSON格式</strong><br>
+          [<br>
+          &nbsp;&nbsp;{"email":"example1@outlook.com","password":"Password123"},<br>
+          &nbsp;&nbsp;{"email":"example2@hotmail.com","password":"Password456"}<br>
+          ]
+        </div>
+      </div>
+      
+      <div class="file-drop-zone" id="dropZone">
+        <input type="file" id="fileInput" accept=".txt,.csv,.json">
+        <h3>📁 拖拽文件到此处</h3>
+        <p>或点击选择文件 (支持 .txt, .csv, .json)</p>
+        <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">选择文件</button>
+      </div>
+      
+      <h3>或直接粘贴账号数据：</h3>
+      <textarea id="accountsInput" class="import-textarea" placeholder="粘贴账号数据到这里..."></textarea>
+      
+      <div class="button-group">
+        <button class="btn btn-primary" onclick="parseAccounts()">解析账号</button>
+        <button class="btn btn-secondary" onclick="clearInput()">清空</button>
+      </div>
+    </div>
+    
+    <!-- Step 2: Parse -->
+    <div class="step-content" id="step-parse">
+      <h3>已解析账号列表</h3>
+      <div id="parsedStats" style="margin: 15px 0;"></div>
+      
+      <table class="accounts-table" id="parsedTable">
+        <thead>
+          <tr>
+            <th>序号</th>
+            <th>邮箱</th>
+            <th>密码</th>
+            <th>状态</th>
+          </tr>
+        </thead>
+        <tbody id="parsedTableBody">
+        </tbody>
+      </table>
+      
+      <div class="button-group">
+        <button class="btn btn-primary" onclick="startValidation()">开始验证</button>
+        <button class="btn btn-secondary" onclick="backToInput()">返回修改</button>
+      </div>
+    </div>
+    
+    <!-- Step 3: Validate -->
+    <div class="step-content" id="step-validate">
+      <h3>批量验证账号</h3>
+      
+      <div>
+        <label>ClientID: <input type="text" id="clientId" style="width: 500px; padding: 8px;" placeholder="输入Microsoft App ClientID"></label>
+      </div>
+      
+      <div style="margin: 15px 0;">
+        <label>并发数: <input type="number" id="concurrency" min="1" max="10" value="3" style="width: 100px; padding: 8px;"></label>
+        <span style="margin-left: 10px; color: #666;">建议1-3，避免触发频率限制</span>
+      </div>
+      
+      <div class="progress-bar" id="validateProgress" style="display: none;">
+        <div class="progress-fill" id="validateProgressFill">0%</div>
+      </div>
+      
+      <div class="log-console" id="validateLog"></div>
+      
+      <table class="accounts-table" id="validateTable" style="margin-top: 20px;">
+        <thead>
+          <tr>
+            <th>邮箱</th>
+            <th>验证状态</th>
+            <th>详情</th>
+          </tr>
+        </thead>
+        <tbody id="validateTableBody">
+        </tbody>
+      </table>
+      
+      <div class="button-group">
+        <button class="btn btn-primary" id="validateBtn" onclick="runValidation()">开始验证</button>
+        <button class="btn btn-primary" id="saveBtn" onclick="saveToDatabase()" style="display: none;">保存到数据库</button>
+        <button class="btn btn-secondary" onclick="backToParse()">返回</button>
+      </div>
+    </div>
+    
+    <!-- Step 4: Save -->
+    <div class="step-content" id="step-save">
+      <h3>✅ 保存完成</h3>
+      
+      <div style="background: #d4edda; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <h2 style="color: #155724; margin-top: 0;">🎉 导入成功！</h2>
+        <div id="saveStats"></div>
+      </div>
+      
+      <div class="button-group">
+        <button class="btn btn-primary" onclick="window.location.href='index.html'">返回首页</button>
+        <button class="btn btn-secondary" onclick="resetImport()">继续导入</button>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    let parsedAccounts = [];
+    let validatedAccounts = [];
+    
+    // Tab切换
+    document.querySelectorAll('.step-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const step = tab.dataset.step;
+        switchToStep(step);
+      });
+    });
+    
+    function switchToStep(step) {
+      document.querySelectorAll('.step-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.step-content').forEach(c => c.classList.remove('active'));
+      
+      document.querySelector(`[data-step="${step}"]`).classList.add('active');
+      document.getElementById(`step-${step}`).classList.add('active');
+    }
+    
+    // 文件拖拽
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    
+    dropZone.addEventListener('click', () => fileInput.click());
+    
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('drag-over');
+    });
+    
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('drag-over');
+    });
+    
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('drag-over');
+      
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        handleFile(files[0]);
+      }
+    });
+    
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        handleFile(e.target.files[0]);
+      }
+    });
+    
+    function handleFile(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        document.getElementById('accountsInput').value = e.target.result;
+      };
+      reader.readAsText(file);
+    }
+    
+    // 解析账号
+    function parseAccounts() {
+      const text = document.getElementById('accountsInput').value.trim();
+      if (!text) {
+        alert('请输入账号数据');
+        return;
+      }
+      
+      try {
+        parsedAccounts = window.accountImporterAPI.parseFromText(text, 'auto');
+        
+        if (parsedAccounts.length === 0) {
+          alert('未能解析出任何账号，请检查格式');
+          return;
+        }
+        
+        displayParsedAccounts();
+        switchToStep('parse');
+      } catch (error) {
+        alert('解析失败: ' + error.message);
+      }
+    }
+    
+    function displayParsedAccounts() {
+      const tbody = document.getElementById('parsedTableBody');
+      tbody.innerHTML = '';
+      
+      parsedAccounts.forEach((account, index) => {
+        const row = tbody.insertRow();
+        row.innerHTML = `
+          <td>${index + 1}</td>
+          <td>${account.email}</td>
+          <td>${'*'.repeat(account.password.length)}</td>
+          <td><span class="status-badge status-pending">待验证</span></td>
+        `;
+      });
+      
+      document.getElementById('parsedStats').innerHTML = `
+        <strong>共解析 ${parsedAccounts.length} 个账号</strong>
+      `;
+    }
+    
+    function clearInput() {
+      document.getElementById('accountsInput').value = '';
+      document.getElementById('fileInput').value = '';
+    }
+    
+    function backToInput() {
+      switchToStep('input');
+    }
+    
+    function startValidation() {
+      switchToStep('validate');
+      
+      const tbody = document.getElementById('validateTableBody');
+      tbody.innerHTML = '';
+      
+      parsedAccounts.forEach(account => {
+        const row = tbody.insertRow();
+        row.innerHTML = `
+          <td>${account.email}</td>
+          <td><span class="status-badge status-pending">等待中</span></td>
+          <td>-</td>
+        `;
+      });
+    }
+    
+    function backToParse() {
+      switchToStep('parse');
+    }
+    
+    // 运行验证
+    async function runValidation() {
+      const clientId = document.getElementById('clientId').value.trim();
+      if (!clientId) {
+        alert('请输入ClientID');
+        return;
+      }
+      
+      const concurrency = parseInt(document.getElementById('concurrency').value) || 3;
+      
+      document.getElementById('validateBtn').disabled = true;
+      document.getElementById('validateProgress').style.display = 'block';
+      
+      const logDiv = document.getElementById('validateLog');
+      logDiv.innerHTML = '';
+      
+      function addLog(type, message) {
+        const entry = document.createElement('div');
+        entry.className = `log-entry log-${type}`;
+        entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+        logDiv.appendChild(entry);
+        logDiv.scrollTop = logDiv.scrollHeight;
+      }
+      
+      try {
+        validatedAccounts = await window.accountImporterAPI.batchValidate(
+          parsedAccounts,
+          clientId,
+          concurrency,
+          (progress) => {
+            if (progress.type === 'progress') {
+              const percent = Math.round(progress.current / progress.total * 100);
+              document.getElementById('validateProgressFill').style.width = percent + '%';
+              document.getElementById('validateProgressFill').textContent = `${progress.current}/${progress.total} (${percent}%)`;
+            } else {
+              addLog(progress.type, progress.message);
+              
+              // 更新表格
+              const tbody = document.getElementById('validateTableBody');
+              const rows = tbody.querySelectorAll('tr');
+              
+              parsedAccounts.forEach((account, index) => {
+                if (progress.message.includes(account.email)) {
+                  const statusCell = rows[index].cells[1];
+                  const detailCell = rows[index].cells[2];
+                  
+                  if (progress.type === 'success') {
+                    statusCell.innerHTML = '<span class="status-badge status-valid">✓ 有效</span>';
+                    detailCell.textContent = '验证成功';
+                  } else if (progress.type === 'error') {
+                    statusCell.innerHTML = '<span class="status-badge status-invalid">✗ 无效</span>';
+                    detailCell.textContent = progress.message.split(':')[1] || '验证失败';
+                  }
+                }
+              });
+            }
+          }
+        );
+        
+        addLog('success', `✅ 验证完成！有效账号: ${validatedAccounts.filter(a => a.valid).length}/${validatedAccounts.length}`);
+        
+        document.getElementById('saveBtn').style.display = 'inline-block';
+        
+      } catch (error) {
+        addLog('error', '验证过程出错: ' + error.message);
+        alert('验证失败: ' + error.message);
+      } finally {
+        document.getElementById('validateBtn').disabled = false;
+      }
+    }
+    
+    // 保存到数据库
+    async function saveToDatabase() {
+      try {
+        await window.emailDatabaseAPI.init();
+        
+        const validAccounts = validatedAccounts.filter(a => a.valid);
+        
+        for (const account of validAccounts) {
+          await window.emailDatabaseAPI.saveAccount({
+            email: account.email,
+            password: account.password,
+            refresh_token: account.refreshToken,
+            access_token: account.accessToken,
+            is_authorized: 1,
+            is_used: 0
+          });
+        }
+        
+        document.getElementById('saveStats').innerHTML = `
+          <p style="font-size: 18px;">✅ 成功保存 <strong>${validAccounts.length}</strong> 个有效账号到数据库</p>
+          <p>❌ 无效账号: <strong>${validatedAccounts.length - validAccounts.length}</strong> 个</p>
+        `;
+        
+        switchToStep('save');
+        
+      } catch (error) {
+        alert('保存失败: ' + error.message);
+      }
+    }
+    
+    function resetImport() {
+      parsedAccounts = [];
+      validatedAccounts = [];
+      document.getElementById('accountsInput').value = '';
+      document.getElementById('fileInput').value = '';
+      switchToStep('input');
+    }
+    
+    // 初始化数据库
+    window.emailDatabaseAPI.init().catch(err => {
+      console.error('Database init failed:', err);
+    });
+  </script>
+</body>
+</html>

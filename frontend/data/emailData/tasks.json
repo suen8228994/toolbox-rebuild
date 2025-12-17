@@ -1,0 +1,262 @@
+[
+  {
+    "id": 1765526167404,
+    "quantity": 3,
+    "start_time": "2025-12-12T07:56:07.404Z",
+    "end_time": "2025-12-12T07:56:40.139Z",
+    "status": "completed",
+    "success_count": 0,
+    "fail_count": 3,
+    "config": "{\"quantity\":3,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":3,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  },
+  {
+    "id": 1765526485893,
+    "quantity": 3,
+    "start_time": "2025-12-12T08:01:25.893Z",
+    "end_time": "2025-12-12T08:02:31.324Z",
+    "status": "completed",
+    "success_count": 0,
+    "fail_count": 3,
+    "config": "{\"quantity\":3,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":3,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  },
+  {
+    "id": 1765526559476,
+    "quantity": 3,
+    "start_time": "2025-12-12T08:02:39.476Z",
+    "end_time": "2025-12-12T08:02:48.291Z",
+    "status": "completed",
+    "success_count": 0,
+    "fail_count": 3,
+    "config": "{\"quantity\":3,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":3,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  },
+  {
+    "id": 1765526651223,
+    "quantity": 3,
+    "start_time": "2025-12-12T08:04:11.223Z",
+    "end_time": "2025-12-12T08:05:28.446Z",
+    "status": "completed",
+    "success_count": 0,
+    "fail_count": 3,
+    "config": "{\"quantity\":3,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":3,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  },
+  {
+    "id": 1765527022122,
+    "quantity": 1,
+    "start_time": "2025-12-12T08:10:22.122Z",
+    "end_time": "2025-12-12T08:11:24.405Z",
+    "status": "completed",
+    "success_count": 0,
+    "fail_count": 1,
+    "config": "{\"quantity\":1,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":1,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  },
+  {
+    "id": 1765527209292,
+    "quantity": 1,
+    "start_time": "2025-12-12T08:13:29.292Z",
+    "end_time": "2025-12-12T08:13:52.058Z",
+    "status": "completed",
+    "success_count": 0,
+    "fail_count": 1,
+    "config": "{\"quantity\":1,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":1,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  },
+  {
+    "id": 1765527352588,
+    "quantity": 3,
+    "start_time": "2025-12-12T08:15:52.588Z",
+    "end_time": "2025-12-12T08:16:59.049Z",
+    "status": "completed",
+    "success_count": 0,
+    "fail_count": 3,
+    "config": "{\"quantity\":3,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":3,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  },
+  {
+    "id": 1765527898609,
+    "quantity": 1,
+    "start_time": "2025-12-12T08:24:58.609Z",
+    "end_time": "2025-12-12T08:27:29.694Z",
+    "status": "completed",
+    "success_count": 0,
+    "fail_count": 1,
+    "config": "{\"quantity\":1,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":1,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  },
+  {
+    "id": 1765528180814,
+    "quantity": 1,
+    "start_time": "2025-12-12T08:29:40.814Z",
+    "end_time": "2025-12-12T08:32:12.679Z",
+    "status": "completed",
+    "success_count": 0,
+    "fail_count": 1,
+    "config": "{\"quantity\":1,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":1,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  },
+  {
+    "id": 1765528443881,
+    "quantity": 3,
+    "start_time": "2025-12-12T08:34:03.881Z",
+    "end_time": null,
+    "status": "running",
+    "success_count": 0,
+    "fail_count": 0,
+    "config": "{\"quantity\":3,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":3,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  },
+  {
+    "id": 1765528472050,
+    "quantity": 1,
+    "start_time": "2025-12-12T08:34:32.050Z",
+    "end_time": "2025-12-12T08:37:05.889Z",
+    "status": "completed",
+    "success_count": 0,
+    "fail_count": 1,
+    "config": "{\"quantity\":1,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":1,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  },
+  {
+    "id": 1765528690767,
+    "quantity": 1,
+    "start_time": "2025-12-12T08:38:10.767Z",
+    "end_time": "2025-12-12T08:40:44.656Z",
+    "status": "completed",
+    "success_count": 0,
+    "fail_count": 1,
+    "config": "{\"quantity\":1,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":1,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  },
+  {
+    "id": 1765529009587,
+    "quantity": 1,
+    "start_time": "2025-12-12T08:43:29.587Z",
+    "end_time": "2025-12-12T08:44:52.863Z",
+    "status": "completed",
+    "success_count": 0,
+    "fail_count": 1,
+    "config": "{\"quantity\":1,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":1,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  },
+  {
+    "id": 1765529110814,
+    "quantity": 1,
+    "start_time": "2025-12-12T08:45:10.814Z",
+    "end_time": "2025-12-12T08:46:19.370Z",
+    "status": "completed",
+    "success_count": 0,
+    "fail_count": 1,
+    "config": "{\"quantity\":1,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":1,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  },
+  {
+    "id": 1765529272117,
+    "quantity": 1,
+    "start_time": "2025-12-12T08:47:52.117Z",
+    "end_time": "2025-12-12T08:49:06.404Z",
+    "status": "completed",
+    "success_count": 0,
+    "fail_count": 1,
+    "config": "{\"quantity\":1,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":1,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  },
+  {
+    "id": 1765534594291,
+    "quantity": 1,
+    "start_time": "2025-12-12T10:16:34.291Z",
+    "end_time": "2025-12-12T10:16:34.337Z",
+    "status": "completed",
+    "success_count": 0,
+    "fail_count": 1,
+    "config": "{\"quantity\":1,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":1,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  },
+  {
+    "id": 1765534671352,
+    "quantity": 1,
+    "start_time": "2025-12-12T10:17:51.352Z",
+    "end_time": "2025-12-12T10:19:39.743Z",
+    "status": "completed",
+    "success_count": 0,
+    "fail_count": 1,
+    "config": "{\"quantity\":1,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":1,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  },
+  {
+    "id": 1765534924168,
+    "quantity": 1,
+    "start_time": "2025-12-12T10:22:04.168Z",
+    "end_time": "2025-12-12T10:23:44.816Z",
+    "status": "completed",
+    "success_count": 0,
+    "fail_count": 1,
+    "config": "{\"quantity\":1,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":1,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  },
+  {
+    "id": 1765535196217,
+    "quantity": 1,
+    "start_time": "2025-12-12T10:26:36.217Z",
+    "end_time": "2025-12-12T10:29:51.690Z",
+    "status": "completed",
+    "success_count": 0,
+    "fail_count": 1,
+    "config": "{\"quantity\":1,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":1,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  },
+  {
+    "id": 1765535674027,
+    "quantity": 1,
+    "start_time": "2025-12-12T10:34:34.027Z",
+    "end_time": "2025-12-12T10:36:46.576Z",
+    "status": "completed",
+    "success_count": 0,
+    "fail_count": 1,
+    "config": "{\"quantity\":1,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":1,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  },
+  {
+    "id": 1765535948618,
+    "quantity": 1,
+    "start_time": "2025-12-12T10:39:08.618Z",
+    "end_time": null,
+    "status": "running",
+    "success_count": 0,
+    "fail_count": 0,
+    "config": "{\"quantity\":1,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":1,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  },
+  {
+    "id": 1765539685676,
+    "quantity": 1,
+    "start_time": "2025-12-12T11:41:25.676Z",
+    "end_time": "2025-12-12T11:49:09.145Z",
+    "status": "completed",
+    "success_count": 0,
+    "fail_count": 1,
+    "config": "{\"quantity\":1,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":1,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  },
+  {
+    "id": 1765542871959,
+    "quantity": 1,
+    "start_time": "2025-12-12T12:34:31.959Z",
+    "end_time": "2025-12-12T12:35:38.693Z",
+    "status": "completed",
+    "success_count": 0,
+    "fail_count": 1,
+    "config": "{\"quantity\":1,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":1,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  },
+  {
+    "id": 1765543341284,
+    "quantity": 1,
+    "start_time": "2025-12-12T12:42:21.284Z",
+    "end_time": "2025-12-12T12:43:21.914Z",
+    "status": "completed",
+    "success_count": 0,
+    "fail_count": 1,
+    "config": "{\"quantity\":1,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":1,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  },
+  {
+    "id": 1765543644257,
+    "quantity": 1,
+    "start_time": "2025-12-12T12:47:24.257Z",
+    "end_time": null,
+    "status": "running",
+    "success_count": 0,
+    "fail_count": 0,
+    "config": "{\"quantity\":1,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":1,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  },
+  {
+    "id": 1765544493709,
+    "quantity": 1,
+    "start_time": "2025-12-12T13:01:33.709Z",
+    "end_time": null,
+    "status": "running",
+    "success_count": 0,
+    "fail_count": 0,
+    "config": "{\"quantity\":1,\"config\":\"{\\\"domain\\\":\\\"outlook.com\\\",\\\"threads\\\":1,\\\"clientId\\\":\\\"1d08522d-70bb-4128-8684-449f9a2efaf5\\\"}\"}"
+  }
+]
