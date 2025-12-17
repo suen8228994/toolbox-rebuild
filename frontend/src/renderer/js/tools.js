@@ -822,6 +822,7 @@ const toolDefinitions = {
                         <div class="form-item">
                             <label>国家</label>
                             <select id="proxy-country">
+                                <option value="RANDOM">🎲 随机</option>
                                 <option value="US">美国 (US)</option>
                                 <option value="UK">英国 (UK)</option>
                                 <option value="CA">加拿大 (CA)</option>

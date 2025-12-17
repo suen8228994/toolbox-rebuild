@@ -97,8 +97,8 @@ class AddressService {
       return {
         addressLine1: `${house_number} ${road}`,
         city,
-        stateCode,
-        phoneNumber
+        stateCode,      // 与toolbox保持一致：stateCode 而不是 countryCode
+        phoneNumber     // 与toolbox保持一致：phoneNumber 而不是 randomPhone
       };
     }, postalCode);
   }

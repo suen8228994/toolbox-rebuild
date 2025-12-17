@@ -50,6 +50,7 @@ class EmailService {
   /**
    * 获取文件夹 ID
    * @private
+   * @param {string|string[]} folderName - 文件夹名称或名称数组（支持多语言备选）
    */
   async #getFolderId(client, folderName) {
     const { value } = await client
@@ -57,9 +58,19 @@ class EmailService {
       .select('id,displayName')
       .get();
 
-    return value.find(
-      (folder) => folder.displayName.toLowerCase() === folderName.toLowerCase()
-    )?.id;
+    // 支持传入数组，依次尝试匹配
+    const folderNames = Array.isArray(folderName) ? folderName : [folderName];
+    
+    for (const name of folderNames) {
+      const folder = value.find(
+        (folder) => folder.displayName.toLowerCase() === name.toLowerCase()
+      );
+      if (folder) {
+        return folder.id;
+      }
+    }
+    
+    return undefined;
   }
 
   /**
@@ -174,7 +185,7 @@ class EmailService {
    * @public
    */
   async getInboxLatest(credentials) {
-    return this.getFolderLatest({ ...credentials, folderName: 'Inbox' });
+    return this.getFolderLatest({ ...credentials, folderName: ['Inbox', '收件箱'] });
   }
 
   /**
@@ -182,7 +193,7 @@ class EmailService {
    * @public
    */
   async getJunkLatest(credentials) {
-    return this.getFolderLatest({ ...credentials, folderName: 'Junk Email' });
+    return this.getFolderLatest({ ...credentials, folderName: ['Junk Email', '垃圾邮件'] });
   }
 
   /**
@@ -190,7 +201,7 @@ class EmailService {
    * @public
    */
   async getInboxAll(credentials) {
-    return this.getFolderAll({ ...credentials, folderName: 'Inbox' });
+    return this.getFolderAll({ ...credentials, folderName: ['Inbox', '收件箱'] });
   }
 
   /**
@@ -198,7 +209,7 @@ class EmailService {
    * @public
    */
   async getJunkAll(credentials) {
-    return this.getFolderAll({ ...credentials, folderName: 'Junk Email' });
+    return this.getFolderAll({ ...credentials, folderName: ['Junk Email', '垃圾邮件'] });
   }
 
   /**

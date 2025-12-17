@@ -39,11 +39,17 @@ const {
 // 导入邮件服务
 const msGraphMail = require('./msGraphMail');
 
+// 导入地址生成服务
+const AddressService = require('../refactored-backend/services/address/AddressService');
+
 class AmazonRegisterCore {
   constructor(config) {
     // 从配置中提取所有必要参数
     this.page = config.page;
     this.config = config;
+    
+    // 初始化地址生成服务
+    this.addressService = config.addressService || new AddressService();
     
     // Private state
     this.registerTime = config.registerTime || Date.now();
@@ -724,8 +730,13 @@ class AmazonRegisterCore {
   async handle2FAManualSetup() {
     this.logRegistrationSuccess();
     
-    await this.page.goto('https://www.amazon.com', { timeout: 60000 });
-    await this.goToHomepage();
+    // 注册完成后先等待页面稳定，然后导航到首页
+    this.tasklog({ message: '等待页面稳定后导航到首页', logID: 'RG-Info-Operate' });
+    await this.page.goto('https://www.amazon.com', { timeout: 60000, waitUntil: 'domcontentloaded' });
+    await this.page.waitForTimeout(utilRandomAround(2000, 3000));
+    
+    // 跳过登录状态检查，因为刚注册完可能还在注册流程页面
+    await this.goToHomepage(true);
     await this.goToLoginSecurity();
     await this.goToStepVerification();
     await this.expandAuthenticatorApp();
@@ -781,14 +792,45 @@ class AmazonRegisterCore {
   }
 
   async expandAuthenticatorApp() {
-    const box = this.page.locator('#sia-otp-accordion-totp-header');
-    const expanded = await box.getAttribute('aria-expanded');
+    // 1. 先尝试点击radio按钮选择"使用验证器应用"选项
+    const radioSelectors = [
+      'input[type="radio"][value="totp"]',
+      '#auth-TOTP',
+      'input[name="otpDeviceContext"][value="totp"]',
+      'input[value="totp"]'
+    ];
     
-    if (expanded === 'false') {
-      this.tasklog({ message: '选择添加2FA', logID: 'RG-Info-Operate' });
-      await this.clickElement(box, {
-        title: '桌面端，主站，选择添加2FA'
-      });
+    let radioClicked = false;
+    for (const selector of radioSelectors) {
+      try {
+        const radio = this.page.locator(selector).first();
+        const isVisible = await radio.isVisible({ timeout: 2000 }).catch(() => false);
+        
+        if (isVisible) {
+          this.tasklog({ message: '选择使用验证器应用', logID: 'RG-Info-Operate' });
+          await radio.click();
+          await this.page.waitForTimeout(utilRandomAround(1000, 1500));
+          radioClicked = true;
+          break;
+        }
+      } catch (error) {
+        // 继续尝试下一个选择器
+      }
+    }
+    
+    // 2. 再检查并展开accordion（如果需要）
+    const box = this.page.locator('#sia-otp-accordion-totp-header');
+    const boxExists = await box.count().then(c => c > 0);
+    
+    if (boxExists) {
+      const expanded = await box.getAttribute('aria-expanded');
+      
+      if (expanded === 'false') {
+        this.tasklog({ message: '展开验证器应用配置区域', logID: 'RG-Info-Operate' });
+        await this.clickElement(box, {
+          title: '桌面端，主站，展开验证器应用配置'
+        });
+      }
     }
   }
 
@@ -830,16 +872,44 @@ class AmazonRegisterCore {
   }
 
   async submitTwoStepVerification() {
-    const enableMfaFormSubmit = this.page.locator('#enable-mfa-form-submit');
-    await enableMfaFormSubmit.waitFor();
+    // 等待确认页面加载
+    await this.page.waitForTimeout(utilRandomAround(1000, 1500));
     
+    // 检查确认按钮是否存在（设置5秒超时）
+    const enableMfaFormSubmit = this.page.locator('#enable-mfa-form-submit');
+    const isButtonVisible = await enableMfaFormSubmit.isVisible({ timeout: 5000 }).catch(() => false);
+    
+    // 如果确认页面没有出现，直接返回继续后续流程
+    if (!isButtonVisible) {
+      this.tasklog({ message: '未出现两步验证确认页面，继续后续流程', logID: 'RG-Info-Operate' });
+      return;
+    }
+    
+    // 确认页面出现了，处理复选框和提交按钮
+    this.tasklog({ message: '检测到两步验证确认页面', logID: 'RG-Info-Operate' });
+    
+    // 检查是否有"Don't require OTP on this browser"复选框
+    const trustDeviceCheckbox = this.page.locator('input[name="trustThisDevice"]');
+    const isCheckboxVisible = await trustDeviceCheckbox.isVisible().catch(() => false);
+    
+    if (isCheckboxVisible) {
+      // 如果复选框存在且未勾选，则勾选它
+      const isChecked = await trustDeviceCheckbox.isChecked();
+      if (!isChecked) {
+        await trustDeviceCheckbox.check();
+        await this.page.waitForTimeout(utilRandomAround(500, 1000));
+      }
+    }
+    
+    // 滚动到按钮位置
     await enableMfaFormSubmit.evaluate(el => {
       el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
     
-    this.tasklog({ message: '提交两步验证', logID: 'RG-Info-Operate' });
+    // 点击确认按钮
+    this.tasklog({ message: '确认开启两步验证', logID: 'RG-Info-Operate' });
     return this.clickElement(enableMfaFormSubmit, {
-      title: '桌面端，主站，提交两步验证',
+      title: '桌面端，主站，确认开启两步验证',
       waitForURL: true
     });
   }
@@ -1050,54 +1120,61 @@ class AmazonRegisterCore {
       
       const { postCode } = this.addressInfo;
       
-      // 生成地址详细信息
-      // 注意：这里需要地址生成服务，我们简化处理，使用配置中的地址
-      // 从 phone 字段中提取手机号（格式：+1234567890----API地址）
-      let phoneNumber = this.config.phone || '5551234567';
-      if (phoneNumber.includes('----')) {
-        phoneNumber = phoneNumber.split('----')[0]; // 只取----前面的手机号
+      // 使用地址生成服务获取真实地址信息
+      this.tasklog({ message: '正在生成真实地址信息...', logID: 'RG-Info-Operate' });
+      
+      let addressData;
+      if (this.config.addressData) {
+        // 如果配置中提供了完整地址数据，直接使用
+        addressData = this.config.addressData;
+        this.tasklog({ message: '使用配置的地址数据', logID: 'RG-Info-Operate' });
+      } else {
+        // 使用地址生成服务获取真实地址（与原始toolbox完全一致）
+        const result = postCode 
+          ? await this.addressService.generatePostalCodeAddress(postCode)
+          : await this.addressService.generateRandomAddress();
+        
+        addressData = result.data;
+        this.tasklog({ 
+          message: `已生成真实地址: ${addressData.addressLine1}, ${addressData.city}, ${addressData.stateCode} ${addressData.postalCode}`, 
+          logID: 'RG-Info-Operate' 
+        });
       }
       
-      const addressData = this.config.addressData || {
-        randomPhone: phoneNumber,
-        addressLine1: this.config.addressLine1 || '123 Main St',
-        city: this.config.city || 'New York',
-        countryCode: this.config.countryCode || 'NY',
-        postalCode: this.config.postalCode || '10001'
-      };
+      // 解构地址数据（变量名与toolbox保持一致）
+      const { phoneNumber, addressLine1, city, stateCode, postalCode } = addressData;
       
-      const { randomPhone, addressLine1, city, countryCode, postalCode } = addressData;
-      
-      // 导航到地址管理
-      await this.goToHomepage();
+      // 导航到地址管理（跳过登录检查，因为此时肯定已登录）
+      await this.goToHomepage(true);
       await this.goToAccountAddress();
       await this.clickAddAddress();
       
-      // 填写表单（随机顺序模拟人类行为）
+      // 填写表单（随机顺序模拟人类行为 - 与toolbox逻辑完全一致）
       const enterAddressFirst = Math.random() < 0.5;
       
       if (enterAddressFirst) {
-        await this.fillPhoneNumber(randomPhone);
+        await this.fillPhoneNumber(phoneNumber);
         await this.fillAddressLine1(addressLine1);
       } else {
         await this.fillAddressLine1(addressLine1);
       }
       
-      // 检查亚马逊的地址建议
+      // 检查亚马逊的地址建议（与toolbox一致）
       await this.handleAddressSuggestions();
       
-      // 如果没有选择建议地址，填写剩余字段
+      // 如果没有选择建议地址，填写剩余字段（与toolbox一致）
       if (!this.suggestedAddress) {
         await this.fillCity(city);
-        await this.selectState(countryCode);
+        await this.selectState(stateCode);
         await this.fillPostalCode(postalCode);
       }
       
-      // 填写电话号码（如果还没填）
+      // 填写电话号码（如果还没填 - 与toolbox一致）
       if (!enterAddressFirst) {
-        await this.fillPhoneNumber(randomPhone);
+        await this.fillPhoneNumber(phoneNumber);
       }
       
+      // 提交地址表单（与toolbox一致）
       await this.submitAddress();
       await this.confirmSuggestedAddress();
       await this.goToNavLogo();
@@ -1171,9 +1248,69 @@ class AmazonRegisterCore {
   }
 
   /**
-   * 导航：打开个人中心
+   * 检查是否处于登录状态
    */
-  async goToHomepage() {
+  async checkLoginStatus() {
+    try {
+      // 检查是否有"Hello, [用户名]"或"Account & Lists"元素
+      const accountElement = this.page.locator('a[data-nav-role="signin"]').first();
+      const isVisible = await accountElement.isVisible({ timeout: 3000 }).catch(() => false);
+      
+      if (!isVisible) {
+        return false;
+      }
+      
+      // 获取元素文本内容
+      const text = await accountElement.innerText().catch(() => '');
+      
+      // 如果包含"Hello"或用户邮箱名，说明已登录
+      if (text.includes('Hello') || text.includes('Account & Lists')) {
+        this.tasklog({ message: '检测到登录状态', logID: 'RG-Info-Operate' });
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      this.tasklog({ message: '登录状态检测失败，假定未登录', logID: 'Warn-Info' });
+      return false;
+    }
+  }
+
+  /**
+   * 等待登录状态，如果未登录则刷新页面重试
+   */
+  async ensureLoginStatus(maxRetries = 3) {
+    this.tasklog({ message: '开始检查登录状态...', logID: 'RG-Info-Operate' });
+    
+    for (let i = 0; i < maxRetries; i++) {
+      const isLoggedIn = await this.checkLoginStatus();
+      
+      if (isLoggedIn) {
+        this.tasklog({ message: '已确认登录状态', logID: 'RG-Info-Operate' });
+        return true;
+      }
+      
+      if (i < maxRetries - 1) {
+        this.tasklog({ message: `未检测到登录状态，刷新页面重试 (${i + 1}/${maxRetries})`, logID: 'RG-Info-Operate' });
+        await this.page.reload({ waitUntil: 'networkidle' });
+        await this.page.waitForTimeout(utilRandomAround(2000, 3000));
+      }
+    }
+    
+    this.tasklog({ message: '警告：多次尝试后仍未检测到登录状态，继续执行', logID: 'Warn-Info' });
+    return false;
+  }
+
+  /**
+   * 导航：打开个人中心
+   * @param {boolean} skipLoginCheck - 是否跳过登录状态检查（注册后立即导航时使用）
+   */
+  async goToHomepage(skipLoginCheck = false) {
+    // 只有在需要时才检查登录状态（避免在注册完成后立即导航时出现问题）
+    if (!skipLoginCheck) {
+      await this.ensureLoginStatus();
+    }
+    
     this.tasklog({ message: '打开个人中心', logID: 'RG-Info-Operate' });
     return this.clickElement(
       this.page.locator('a[data-nav-role="signin"]').first(),
@@ -1286,18 +1423,31 @@ class AmazonRegisterCore {
    * 提交地址表单
    */
   async submitAddress() {
-    this.tasklog({ message: '确定添加地址', logID: 'RG-Info-Operate' });
-    return this.clickElement(
-      this.page.locator('#address-ui-widgets-form-submit-button').first(),
-      {
-        title: '桌面端，主站，确定添加地址',
-        waitForURL: true
-      }
-    );
+    // 等待按钮出现并可点击
+    const submitButton = this.page.locator('#address-ui-widgets-form-submit-button').first();
+    
+    try {
+      await submitButton.waitFor({ state: 'visible', timeout: 5000 });
+      this.tasklog({ message: '找到"Add address"按钮，准备点击', logID: 'RG-Info-Operate' });
+    } catch (error) {
+      this.tasklog({ message: '警告：未找到提交按钮，尝试继续', logID: 'Warn-Info' });
+    }
+    
+    // 滚动到按钮位置
+    await submitButton.evaluate(el => {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }).catch(() => {});
+    await this.page.waitForTimeout(utilRandomAround(500, 800));
+    
+    this.tasklog({ message: '点击"Add address"按钮提交地址', logID: 'RG-Info-Operate' });
+    return this.clickElement(submitButton, {
+      title: '桌面端，主站，确定添加地址',
+      waitForURL: true
+    });
   }
 
   /**
-   * 处理亚马逊地址建议
+   * 处理亚马逊地址建议（与toolbox完全一致）
    */
   async handleAddressSuggestions() {
     const suggestion = this.page.locator('.awz-address-suggestion-item');
@@ -1308,19 +1458,14 @@ class AmazonRegisterCore {
       await suggestion.waitFor({ timeout: 3000 });
       this.suggestedAddress = true;
     } catch {
-      // 没有建议地址
+      // 没有建议地址，不做任何操作
     }
     
     if (this.suggestedAddress) {
-      this.tasklog({ message: '选择亚马逊建议地址', logID: 'RG-Info-Operate' });
+      this.tasklog({ message: '选择亚马逊接口地址', logID: 'RG-Info-Operate' });
       return this.clickElement(suggestion.first(), {
-        title: '桌面端，主站，选择亚马逊建议地址'
+        title: '桌面端，主站，选择亚马逊接口地址'
       });
-    } else {
-      // 如果没有建议或没有选择建议，按ESC关闭可能存在的下拉列表
-      await this.page.keyboard.press('Escape');
-      await this.page.waitForTimeout(utilRandomAround(500, 800));
-      this.tasklog({ message: '关闭地址建议下拉列表', logID: 'RG-Info-Operate' });
     }
   }
 

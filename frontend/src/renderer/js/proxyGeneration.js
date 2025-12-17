@@ -27,9 +27,16 @@ function initProxyGeneration() {
     // 生成代理
     generateBtn.addEventListener('click', async () => {
         const quantity = parseInt(quantityInput.value) || 1;
-        const country = countrySelect.value;
+        let country = countrySelect.value;
         const prefix = prefixInput.value.trim() || 'rZwC7qlCe8';
         const password = passwordInput.value.trim() || '52572596';
+
+        // 如果选择了随机，从可用国家中随机选择一个
+        if (country === 'RANDOM') {
+            const countries = ['US', 'UK', 'CA', 'AU', 'DE'];
+            country = countries[Math.floor(Math.random() * countries.length)];
+            console.log(`随机选择国家: ${country}`);
+        }
 
         if (quantity < 1 || quantity > 100) {
             alert('数量必须在 1-100 之间');
