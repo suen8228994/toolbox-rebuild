@@ -256,8 +256,11 @@ function initAmazonRegister() {
             console.log('[Register] containerCode:', browserResult.containerCode);
             console.log('[Register] 开始注册Amazon账号...');
             
-            // 执行注册脚本 - 传递完整配置给主进程
+            // 执行注册脚本 - 传递完整配置给主进程（包括 containerCode）
             const registerResult = await window.amazonBrowserAPI.executeRegisterScript({
+                // 浏览器实例标识
+                containerCode: browserResult.containerCode,
+                
                 // 账号信息
                 emailLine: config.emailLine,
                 password: config.password,

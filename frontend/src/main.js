@@ -4,12 +4,19 @@ const { spawn } = require('child_process');
 const remoteMain = require('@electron/remote/main');
 const AmazonRegisterCore = require('./utils/amazonRegisterCore');
 
+// 禁用 GPU 缓存以避免权限错误
+app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
+app.commandLine.appendSwitch('disable-gpu-program-cache');
+
 // 初始化remote模块
 remoteMain.initialize();
 let mainWindow;
 let backendProcess;
 
-// 全局状态 - 保存当前浏览器和HubStudio客户端实例（IPC不可传递）
+// 浏览器实例管理 - 使用 Map 存储多个实例，支持并发
+const browserInstances = new Map(); // key: containerCode, value: { browser, page, hubstudio, containerCode }
+
+// 保留全局变量用于单任务兼容
 let globalBrowser = null;
 let globalPage = null;
 let globalHubStudio = null;
@@ -284,11 +291,22 @@ ipcMain.handle('amazon:launchBrowser', async (event, config) => {
       
       console.log('成功连接到浏览器');
       
-      // 保存全局引用（用于后续操作）
+      // 将实例存储到 Map 中，支持并发任务
+      browserInstances.set(containerCode, {
+        browser,
+        page,
+        hubstudio,
+        containerCode,
+        createdAt: Date.now()
+      });
+      
+      // 同时保存到全局变量（向后兼容单任务模式）
       globalBrowser = browser;
       globalPage = page;
       globalHubStudio = hubstudio;
       globalContainerCode = containerCode;
+      
+      console.log(`✅ 浏览器实例已存储: ${containerCode}, 当前实例数: ${browserInstances.size}`);
       
       // 导航到HubStudio默认检测页面
       console.log('正在导航到环境检测页面...');
@@ -304,6 +322,7 @@ ipcMain.handle('amazon:launchBrowser', async (event, config) => {
         success: true,
         containerCode,
         debuggingPort: browserInfo.debuggingPort,
+        instanceCount: browserInstances.size,
         // 注意：不返回 browser、page、hubstudio 对象，因为它们不可序列化（IPC限制）
         // 这些对象会被主进程保存用于后续操作
       };
@@ -333,15 +352,42 @@ ipcMain.handle('amazon:launchBrowser', async (event, config) => {
 
 // Amazon注册脚本执行处理器 - 使用完整的 refactored-backend 核心逻辑
 ipcMain.handle('amazon:executeRegisterScript', async (event, config) => {
-  console.log('IPC: amazon:executeRegisterScript called with config:', config);
+  const startTime = Date.now();
+  const taskId = config.containerCode || 'unknown';
+  
+  console.log(`\n========== [任务 ${taskId}] 开始执行注册 ==========`);
+  console.log(`[任务 ${taskId}] 配置:`, {
+    email: config.emailLine?.split('----')[0],
+    site: config.site,
+    enable2FA: config.enable2FA,
+    bindAddress: config.bindAddress
+  });
   
   try {
-    // 验证必要参数
-    if (!globalPage) {
+    // 根据 containerCode 获取对应的浏览器实例
+    const containerCode = config.containerCode;
+    let browserInstance;
+    
+    if (containerCode && browserInstances.has(containerCode)) {
+      browserInstance = browserInstances.get(containerCode);
+      console.log(`[任务 ${taskId}] 使用指定的浏览器实例: ${containerCode}`);
+    } else {
+      // 如果没有指定或找不到，使用全局实例（向后兼容）
+      browserInstance = {
+        browser: globalBrowser,
+        page: globalPage,
+        hubstudio: globalHubStudio,
+        containerCode: globalContainerCode
+      };
+      console.log(`[任务 ${taskId}] 使用全局浏览器实例`);
+    }
+    
+    // 验证实例是否有效
+    if (!browserInstance.page) {
       throw new Error('浏览器未初始化，请先启动浏览器');
     }
     
-    if (!globalHubStudio) {
+    if (!browserInstance.hubstudio) {
       throw new Error('HubStudio客户端未初始化');
     }
     
@@ -355,23 +401,27 @@ ipcMain.handle('amazon:executeRegisterScript', async (event, config) => {
       ? emailLine.split('----') 
       : [emailLine, null];
     
+    console.log(`[任务 ${taskId}] 邮箱: ${email}`);
+    
     // 确定最终使用的密码
     let finalPassword = config.password;
     if (!finalPassword) {
       if (emailPassword) {
         finalPassword = emailPassword;
+        console.log(`[任务 ${taskId}] 使用邮箱密码`);
       } else {
         // 使用原始 toolbox 的密码生成逻辑：username + 随机字符 + "!"
         const username = email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '');
         const randomChars = Math.random().toString(36).substring(2, 8);
         finalPassword = username + randomChars + '!';
+        console.log(`[任务 ${taskId}] 自动生成密码`);
       }
+    } else {
+      console.log(`[任务 ${taskId}] 使用自定义密码`);
     }
     
-    console.log('开始执行Amazon注册流程 (使用 AmazonRegisterCore)...');
-    console.log('站点:', config.site || 'com');
-    console.log('邮箱:', email);
-    console.log('密码来源:', config.password ? '自定义' : (emailPassword ? '邮箱密码' : '自动生成'));
+    console.log(`[任务 ${taskId}] 开始执行Amazon注册流程...`);
+    console.log(`[任务 ${taskId}] 站点: ${config.site || 'com'}`);
     
     // 准备完整配置参数
     const coreConfig = {
@@ -386,10 +436,11 @@ ipcMain.handle('amazon:executeRegisterScript', async (event, config) => {
       // 站点配置
       site: config.site || 'com',
       
-      // 浏览器相关
-      page: globalPage,
-      browser: globalBrowser,
-      hubstudio: globalHubStudio,
+      // 使用正确的浏览器实例
+      page: browserInstance.page,
+      browser: browserInstance.browser,
+      hubstudio: browserInstance.hubstudio,
+      containerCode: browserInstance.containerCode,
       
       // Captcha 配置
       captchaApiKey: config.captchaApiKey || '58e9d0ae-8322-4c89-b6c5-cd035a684b02', // 默认 API Key
@@ -417,14 +468,52 @@ ipcMain.handle('amazon:executeRegisterScript', async (event, config) => {
     
     // 创建核心注册实例并执行
     const registerCore = new AmazonRegisterCore(coreConfig);
+    console.log(`[任务 ${taskId}] 注册实例已创建，开始执行...`);
+    
     const result = await registerCore.execute();
     
-    console.log('注册流程执行完成:', result);
+    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.log(`[任务 ${taskId}] 注册流程执行完成，耗时: ${duration}秒`);
+    console.log(`[任务 ${taskId}] 结果:`, {
+      success: result.success,
+      hasOTP: !!result.account?.otpSecret,
+      addressBound: result.addressBound,
+      error: result.error
+    });
+    
+    // 记录到数据库
+    try {
+      const { getAccountDatabase } = require('./refactored-backend/database/accountDatabase');
+      const accountDb = getAccountDatabase();
+      
+      const accountData = {
+        email: email,
+        password: finalPassword,
+        name: coreConfig.name,
+        otpSecret: result.account?.otpSecret || '',
+        registerSuccess: result.success === true,
+        otpSuccess: result.account?.otpSecret ? true : false,
+        addressSuccess: result.addressBound === true,
+        notes: result.error || ''
+      };
+      
+      accountDb.insertAccount(accountData);
+      console.log(`[任务 ${taskId}] 账号已记录到数据库`);
+    } catch (dbError) {
+      console.error(`[任务 ${taskId}] 记录数据库失败:`, dbError);
+    }
+    
+    console.log(`========== [任务 ${taskId}] 执行结束 (${result.success ? '成功' : '失败'}) ==========\n`);
     
     return result;
     
   } catch (error) {
-    console.error('注册脚本执行失败:', error);
+    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.error(`========== [任务 ${taskId}] 执行异常 (耗时: ${duration}秒) ==========`);
+    console.error(`[任务 ${taskId}] 错误:`, error.message);
+    console.error(`[任务 ${taskId}] 堆栈:`, error.stack);
+    console.log(`========== [任务 ${taskId}] 执行结束 (异常) ==========\n`);
+    
     return {
       success: false,
       error: error.message,

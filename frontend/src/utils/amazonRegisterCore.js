@@ -146,6 +146,9 @@ class AmazonRegisterCore {
       
       await this.page.waitForTimeout(utilRandomAround(3000, 5000));
       
+      // 检测并处理站点选择弹窗（首次访问可能出现）
+      await this.handleCountrySelectionPopup();
+      
       // 3. 点击注册按钮
       await this.clickSignUp();
       await this.clickCreateAccount();
@@ -235,7 +238,15 @@ class AmazonRegisterCore {
       
       return {
         success: true,
-        account: this.accountInfo,
+        account: {
+          userEmail: this.accountInfo.user,
+          userPass: this.accountInfo.pass,
+          userName: this.accountInfo.name,
+          otpSecret: this.accountInfo.otpSecret
+        },
+        registerSuccess: true,
+        otpSuccess: !!this.accountInfo.otpSecret,
+        addressBound: this.config.bindAddress === true,
         logs: this.logs
       };
       
@@ -245,7 +256,15 @@ class AmazonRegisterCore {
       return {
         success: false,
         error: error.message,
-        account: this.accountInfo,
+        account: {
+          userEmail: this.accountInfo.user,
+          userPass: this.accountInfo.pass,
+          userName: this.accountInfo.name,
+          otpSecret: this.accountInfo.otpSecret || null
+        },
+        registerSuccess: false,
+        otpSuccess: false,
+        addressBound: false,
         logs: this.logs
       };
     }
@@ -418,23 +437,57 @@ class AmazonRegisterCore {
   }
 
   async solveCaptcha() {
-    // 完全按照 toolbox 的 #filterCaptcha 实现
-    const captchaSource = await this.getCaptchaData();
-    const result = await this.getCaptchaSolution(captchaSource);
-    const position = utilGenerateGridPositions({
-      width: 324,
-      height: 324,
-      source: result,
-      gap: 16,
-      padding: 16
-    });
-    
-    for (let i = 0; i < result.length; i++) {
-      await this.clickCaptchaPosition(position[i]);
-      await this.page.waitForTimeout(utilRandomAround(750, 1000));
+    try {
+      this.tasklog({ message: '========== 开始处理验证码 ==========', logID: 'RG-Info-Operate' });
+      
+      // 1. 获取验证码数据
+      this.tasklog({ message: '步骤1: 获取验证码数据...', logID: 'RG-Info-Operate' });
+      const captchaSource = await this.getCaptchaData();
+      
+      if (!captchaSource) {
+        this.tasklog({ message: '未能获取验证码数据', logID: 'Error-Info' });
+        throw new Error('获取验证码数据失败');
+      }
+      
+      // 2. 调用 API 解析验证码
+      this.tasklog({ message: '步骤2: 调用 API 解析验证码...', logID: 'RG-Info-Operate' });
+      const result = await this.getCaptchaSolution(captchaSource);
+      
+      if (!result || result.length === 0) {
+        this.tasklog({ message: 'API 未返回有效结果', logID: 'Error-Info' });
+        throw new Error('验证码解析失败');
+      }
+      
+      // 3. 生成点击坐标
+      this.tasklog({ message: `步骤3: 生成 ${result.length} 个点击坐标...`, logID: 'RG-Info-Operate' });
+      const position = utilGenerateGridPositions({
+        width: 324,
+        height: 324,
+        source: result,
+        gap: 16,
+        padding: 16
+      });
+      
+      this.tasklog({ message: `生成坐标完成: ${JSON.stringify(position)}`, logID: 'RG-Info-Operate' });
+      
+      // 4. 依次点击每个位置
+      this.tasklog({ message: `步骤4: 开始点击 ${result.length} 个位置...`, logID: 'RG-Info-Operate' });
+      for (let i = 0; i < result.length; i++) {
+        this.tasklog({ message: `点击第 ${i + 1}/${result.length} 个位置`, logID: 'RG-Info-Operate' });
+        await this.clickCaptchaPosition(position[i]);
+        await this.page.waitForTimeout(utilRandomAround(750, 1000));
+      }
+      
+      // 5. 提交验证码
+      this.tasklog({ message: '步骤5: 提交验证码...', logID: 'RG-Info-Operate' });
+      await this.submitCaptcha();
+      
+      this.tasklog({ message: '========== 验证码处理完成 ==========', logID: 'RG-Info-Operate' });
+    } catch (error) {
+      this.tasklog({ message: `验证码处理失败: ${error.message}`, logID: 'Error-Info' });
+      this.tasklog({ message: `错误堆栈: ${error.stack}`, logID: 'Error-Info' });
+      throw error;
     }
-    
-    await this.submitCaptcha();
   }
 
 
@@ -453,6 +506,8 @@ class AmazonRegisterCore {
         const { assets, localized_assets } = data;
         
         this.tasklog({ message: '成功获取验证码数据', logID: 'RG-Info-Operate' });
+        this.tasklog({ message: `验证码问题: ${localized_assets.target0}`, logID: 'RG-Info-Operate' });
+        this.tasklog({ message: `图片数量: ${JSON.parse(assets.images).length}`, logID: 'RG-Info-Operate' });
         
         return {
           token,
@@ -471,30 +526,9 @@ class AmazonRegisterCore {
   }
 
   async getCaptchaSolution(props) {
-    // 完全按照 toolbox 的 #captchaSource 实现
-    try {
-      const response = await this.page.waitForResponse(
-        /ait\/ait\/ait\/problem\?.+$/,
-        { timeout: 60000 }
-      );
-      
-      if (response.request().timing().startTime > this.registerTime) {
-        const data = await response.json();
-        const token = '58e9d0ae-8322-4c89-b6c5-cd035a684b02';
-        const { assets, localized_assets } = data;
-        
-        return {
-          token,
-          queries: JSON.parse(assets.images),
-          question: localized_assets.target0
-        };
-      }
-    } catch {
-      this.createError({ message: '获取Captcha数据失败', logID: 'Error-Info' });
-    }
-  }
-
-  async getCaptchaSolution(props) {
+    this.tasklog({ message: '开始调用 captcha.run API 解析验证码...', logID: 'RG-Info-Operate' });
+    this.tasklog({ message: `API Token: ${props.token}`, logID: 'RG-Info-Operate' });
+    
     const workflow = createPollingFactory({
       interval: 5000,
       error: () => {
@@ -506,6 +540,8 @@ class AmazonRegisterCore {
     });
     
     return workflow(async (props) => {
+      this.tasklog({ message: '正在发送请求到 captcha.run...', logID: 'RG-Info-Operate' });
+      
       const response = await fetch('https://api.captcha.run/v2/tasks', {
         method: 'POST',
         headers: {
@@ -520,12 +556,14 @@ class AmazonRegisterCore {
       });
       
       const data = await response.json();
+      this.tasklog({ message: `API 响应: ${JSON.stringify(data)}`, logID: 'RG-Info-Operate' });
       
-      if (data.result.type === 'multi' && data.result.objects.length === 5) {
-        this.tasklog({ message: '解析captcha成功', logID: 'RG-Info-Operate' });
+      if (data.result && data.result.type === 'multi' && data.result.objects && data.result.objects.length === 5) {
+        this.tasklog({ message: `解析captcha成功，找到 ${data.result.objects.length} 个目标`, logID: 'RG-Info-Operate' });
         return data.result.objects;
       } else {
-        throw new Error('error');
+        this.tasklog({ message: `API 返回格式不符合预期: ${JSON.stringify(data)}`, logID: 'Warn-Info' });
+        throw new Error('API返回结果格式错误或目标数量不正确');
       }
     }, props);
   }
@@ -722,21 +760,44 @@ class AmazonRegisterCore {
       }
     });
     
+    // 2FA完成后跳转到首页
+    this.tasklog({ message: '2FA完成，跳转到首页', logID: 'RG-Info-Operate' });
     try {
       await this.page.goto('https://www.amazon.com', { timeout: 15000 });
-    } catch {}
+      await this.page.waitForTimeout(utilRandomAround(2000, 3000));
+      
+      // 检测并处理站点选择弹窗
+      await this.handleCountrySelectionPopup();
+    } catch (error) {
+      this.tasklog({ message: '跳转首页失败，继续执行', logID: 'RG-Info-Operate' });
+    }
   }
 
   async handle2FAManualSetup() {
     this.logRegistrationSuccess();
+    
+    // 检查是否在手机绑定页面（无OTP认证的情况）
+    const currentUrl = this.page.url();
+    if (currentUrl.includes('ap/cvf/verify')) {
+      this.tasklog({ message: '检测到手机绑定页面（无OTP认证），准备跳过', logID: 'RG-Info-Operate' });
+      await this.skipPhoneVerification();
+      // 跳过后等待页面稳定
+      await this.page.waitForTimeout(utilRandomAround(2000, 3000));
+    }
     
     // 注册完成后先等待页面稳定，然后导航到首页
     this.tasklog({ message: '等待页面稳定后导航到首页', logID: 'RG-Info-Operate' });
     await this.page.goto('https://www.amazon.com', { timeout: 60000, waitUntil: 'domcontentloaded' });
     await this.page.waitForTimeout(utilRandomAround(2000, 3000));
     
-    // 跳过登录状态检查，因为刚注册完可能还在注册流程页面
-    await this.goToHomepage(true);
+    // 检测并处理站点选择弹窗
+    await this.handleCountrySelectionPopup();
+    
+    // 确保个人中心元素可见（处理简化版首页）
+    await this.ensureAccountMenuVisible();
+    
+    // 进入个人中心设置
+    await this.goToAccountSettings();
     await this.goToLoginSecurity();
     await this.goToStepVerification();
     await this.expandAuthenticatorApp();
@@ -915,6 +976,157 @@ class AmazonRegisterCore {
   }
 
   /**
+   * 跳过手机验证（点击取消按钮）
+   * 当邮箱验证后进入手机绑定页面但没有OTP认证时使用
+   */
+  async skipPhoneVerification() {
+    try {
+      this.tasklog({ message: '尝试跳过手机验证...', logID: 'RG-Info-Operate' });
+      
+      // 查找"稍后"或"Not now"按钮
+      const skipButton = this.page.locator('a[id*="ap-account-fixup-phone-skip-link"]').first();
+      const skipButtonExists = await skipButton.count().then(c => c > 0);
+      
+      if (skipButtonExists) {
+        this.tasklog({ message: '找到"稍后"按钮，点击跳过手机验证', logID: 'RG-Info-Operate' });
+        await this.clickElement(skipButton, {
+          title: '桌面端，主站，跳过手机验证',
+          waitForURL: true
+        });
+        this.tasklog({ message: '已跳过手机验证', logID: 'RG-Info-Operate' });
+        return true;
+      }
+      
+      // 如果没找到"稍后"按钮，尝试查找其他取消类按钮
+      const cancelLink = this.page.locator('a').filter({ hasText: /Not now|稍后|Skip|取消/ }).first();
+      const cancelExists = await cancelLink.count().then(c => c > 0);
+      
+      if (cancelExists) {
+        this.tasklog({ message: '找到取消按钮，点击跳过', logID: 'RG-Info-Operate' });
+        await this.clickElement(cancelLink, {
+          title: '桌面端，主站，跳过手机验证',
+          waitForURL: true
+        });
+        this.tasklog({ message: '已跳过手机验证', logID: 'RG-Info-Operate' });
+        return true;
+      }
+      
+      this.tasklog({ message: '未找到跳过按钮，可能已经不在手机验证页面', logID: 'Warn-Info' });
+      return false;
+    } catch (error) {
+      this.tasklog({ message: `跳过手机验证失败: ${error.message}`, logID: 'Warn-Info' });
+      return false;
+    }
+  }
+
+  /**
+   * 确保个人中心菜单可见
+   * 处理首页简化版本没有个人中心的情况
+   */
+  async ensureAccountMenuVisible() {
+    try {
+      this.tasklog({ message: '检查个人中心菜单是否可见...', logID: 'RG-Info-Operate' });
+      
+      // 检查个人中心元素是否存在且可见
+      const accountMenu = this.page.locator('a[data-nav-role="signin"]').first();
+      const isVisible = await accountMenu.isVisible({ timeout: 3000 }).catch(() => false);
+      
+      if (isVisible) {
+        this.tasklog({ message: '个人中心菜单可见', logID: 'RG-Info-Operate' });
+        return true;
+      }
+      
+      // 如果不可见，可能是简化版首页，刷新页面
+      this.tasklog({ message: '个人中心菜单不可见，可能是简化版首页，刷新页面...', logID: 'Warn-Info' });
+      await this.page.reload({ waitUntil: 'domcontentloaded' });
+      await this.page.waitForTimeout(utilRandomAround(2000, 3000));
+      
+      // 再次检查
+      const isVisibleAfterReload = await accountMenu.isVisible({ timeout: 3000 }).catch(() => false);
+      
+      if (isVisibleAfterReload) {
+        this.tasklog({ message: '刷新后个人中心菜单已可见', logID: 'RG-Info-Operate' });
+        return true;
+      }
+      
+      // 如果还是不可见，再刷新一次
+      this.tasklog({ message: '个人中心菜单仍不可见，再次刷新...', logID: 'Warn-Info' });
+      await this.page.reload({ waitUntil: 'domcontentloaded' });
+      await this.page.waitForTimeout(utilRandomAround(2000, 3000));
+      
+      const isFinalVisible = await accountMenu.isVisible({ timeout: 3000 }).catch(() => false);
+      
+      if (isFinalVisible) {
+        this.tasklog({ message: '第二次刷新后个人中心菜单已可见', logID: 'RG-Info-Operate' });
+        return true;
+      }
+      
+      this.tasklog({ message: '警告：多次刷新后个人中心菜单仍不可见，继续尝试', logID: 'Warn-Info' });
+      return false;
+    } catch (error) {
+      this.tasklog({ message: `检查个人中心菜单失败: ${error.message}`, logID: 'Warn-Info' });
+      return false;
+    }
+  }
+
+  /**
+   * 检测并处理站点选择弹窗
+   * 如果出现"Choosing your Amazon website"弹窗，点击"Go to Amazon.com"
+   */
+  async handleCountrySelectionPopup() {
+    try {
+      this.tasklog({ message: '检测站点选择弹窗...', logID: 'RG-Info-Operate' });
+      
+      // 等待一小段时间让弹窗有机会出现
+      await this.page.waitForTimeout(1000);
+      
+      // 检测弹窗是否存在 - 查找包含"Choosing your Amazon website"的文本
+      const popupText = await this.page.locator('text=Choosing your Amazon website').count().then(c => c > 0);
+      
+      if (!popupText) {
+        // 尝试检测其他可能的弹窗标识
+        const visitingText = await this.page.locator('text=Visiting from').count().then(c => c > 0);
+        if (!visitingText) {
+          this.tasklog({ message: '未检测到站点选择弹窗', logID: 'RG-Info-Operate' });
+          return false;
+        }
+      }
+      
+      this.tasklog({ message: '检测到站点选择弹窗，准备点击美国站', logID: 'RG-Info-Operate' });
+      
+      // 查找"Go to Amazon.com"按钮
+      const usButton = this.page.locator('button, a').filter({ hasText: /Go to Amazon\.com/i }).first();
+      const buttonExists = await usButton.count().then(c => c > 0);
+      
+      if (buttonExists) {
+        this.tasklog({ message: '找到"Go to Amazon.com"按钮，点击...', logID: 'RG-Info-Operate' });
+        await usButton.click();
+        await this.page.waitForTimeout(utilRandomAround(2000, 3000));
+        this.tasklog({ message: '已切换到美国站', logID: 'RG-Info-Operate' });
+        return true;
+      }
+      
+      // 如果没找到精确按钮，尝试查找包含"Amazon.com"的按钮
+      const alternativeButton = this.page.locator('button, a').filter({ hasText: /Amazon\.com(?!\.au)/i }).first();
+      const altExists = await alternativeButton.count().then(c => c > 0);
+      
+      if (altExists) {
+        this.tasklog({ message: '找到美国站按钮（备选），点击...', logID: 'RG-Info-Operate' });
+        await alternativeButton.click();
+        await this.page.waitForTimeout(utilRandomAround(2000, 3000));
+        this.tasklog({ message: '已切换到美国站', logID: 'RG-Info-Operate' });
+        return true;
+      }
+      
+      this.tasklog({ message: '警告：检测到弹窗但未找到美国站按钮', logID: 'Warn-Info' });
+      return false;
+    } catch (error) {
+      this.tasklog({ message: `处理站点选择弹窗失败: ${error.message}`, logID: 'Warn-Info' });
+      return false;
+    }
+  }
+
+  /**
    * ============================================
    * 重试注册
    * ============================================
@@ -949,14 +1161,7 @@ class AmazonRegisterCore {
    * 导航辅助方法
    * ============================================
    */
-  async goToNavLogo() {
-    return this.clickElement(this.page.locator('#nav-logo-sprites'), {
-      title: '桌面端，主站，首页logo',
-      waitForURL: true
-    });
-  }
-
-  async goToHomepage() {
+  async goToAccountSettings() {
     this.tasklog({ message: '打开个人中心', logID: 'RG-Info-Operate' });
     return this.clickElement(
       this.page.locator('a[data-nav-role="signin"]').first(),
@@ -1257,21 +1462,42 @@ class AmazonRegisterCore {
       const isVisible = await accountElement.isVisible({ timeout: 3000 }).catch(() => false);
       
       if (!isVisible) {
+        this.tasklog({ message: '未找到账户元素', logID: 'RG-Info-Operate' });
         return false;
       }
       
       // 获取元素文本内容
       const text = await accountElement.innerText().catch(() => '');
+      this.tasklog({ message: `账户元素文本: ${text}`, logID: 'RG-Info-Operate' });
       
-      // 如果包含"Hello"或用户邮箱名，说明已登录
-      if (text.includes('Hello') || text.includes('Account & Lists')) {
-        this.tasklog({ message: '检测到登录状态', logID: 'RG-Info-Operate' });
+      // 如果包含"Hello"说明已登录
+      if (text.includes('Hello')) {
+        this.tasklog({ message: '检测到登录状态（Hello）', logID: 'RG-Info-Operate' });
+        return true;
+      }
+      
+      // 如果包含"Sign in"说明未登录
+      if (text.includes('Sign in')) {
+        this.tasklog({ message: '检测到未登录状态（Sign in）', logID: 'RG-Info-Operate' });
+        return false;
+      }
+      
+      // 其他情况检查URL是否包含登录页面特征
+      const url = this.page.url();
+      if (url.includes('/ap/signin') || url.includes('/ap/cvf')) {
+        this.tasklog({ message: '当前在登录页面，判定为未登录', logID: 'RG-Info-Operate' });
+        return false;
+      }
+      
+      // 如果文本包含Account & Lists，可能已登录
+      if (text.includes('Account & Lists') || text.includes('Account')) {
+        this.tasklog({ message: '检测到账户菜单，可能已登录', logID: 'RG-Info-Operate' });
         return true;
       }
       
       return false;
     } catch (error) {
-      this.tasklog({ message: '登录状态检测失败，假定未登录', logID: 'Warn-Info' });
+      this.tasklog({ message: `登录状态检测失败: ${error.message}`, logID: 'Warn-Info' });
       return false;
     }
   }
@@ -1378,7 +1604,53 @@ class AmazonRegisterCore {
     );
     
     // 输入地址后，等待一下让下拉建议出现或确认没有建议
-    await this.page.waitForTimeout(utilRandomAround(1000, 1500));
+    await this.page.waitForTimeout(utilRandomAround(1500, 2000));
+    
+    // 检测并选择自动补全下拉框中的第一个地址（如果出现）
+    await this.selectFirstAddressAutocomplete();
+  }
+
+  /**
+   * 选择地址自动补全下拉框中的第一个选项
+   * 处理输入地址时出现的实时建议列表
+   */
+  async selectFirstAddressAutocomplete() {
+    try {
+      this.tasklog({ message: '检测地址自动补全下拉框...', logID: 'RG-Info-Operate' });
+      
+      // 亚马逊地址自动补全下拉框的可能选择器
+      const dropdownSelectors = [
+        '.a-popover-content .a-menu-item',  // 常见的下拉菜单项
+        '[role="option"]',  // ARIA 角色选项
+        '.a-dropdown-item',  // 下拉选项
+        '#address-ui-widgets-enterAddressLine1-dropdown-item-0',  // 特定ID
+        'ul[role="listbox"] li'  // listbox 中的项
+      ];
+      
+      for (const selector of dropdownSelectors) {
+        const dropdown = this.page.locator(selector).first();
+        const exists = await dropdown.count().then(c => c > 0);
+        
+        if (exists) {
+          // 检查是否可见
+          const isVisible = await dropdown.isVisible({ timeout: 1000 }).catch(() => false);
+          
+          if (isVisible) {
+            this.tasklog({ message: `找到地址自动补全选项，选择第一个 (${selector})`, logID: 'RG-Info-Operate' });
+            await dropdown.click();
+            await this.page.waitForTimeout(utilRandomAround(500, 1000));
+            this.tasklog({ message: '已选择自动补全地址', logID: 'RG-Info-Operate' });
+            return true;
+          }
+        }
+      }
+      
+      this.tasklog({ message: '未检测到地址自动补全下拉框，继续执行', logID: 'RG-Info-Operate' });
+      return false;
+    } catch (error) {
+      this.tasklog({ message: `处理地址自动补全失败: ${error.message}，继续执行`, logID: 'Warn-Info' });
+      return false;
+    }
   }
 
   /**

@@ -7,7 +7,7 @@ console.log('=== Preload script loaded ===');
 console.log('__dirname:', __dirname);
 
 // Load modules (sandbox must be disabled in main.js)
-let msGraphModule, hotmailModule, msGraphROPCModule, emailDbModule, authScriptModule, accountImporterModule, playwrightRegisterModule, oauthAutomationModule, proxyGeneratorModule, outlookAuthClientModule;
+let msGraphModule, hotmailModule, msGraphROPCModule, emailDbModule, authScriptModule, accountImporterModule, playwrightRegisterModule, oauthAutomationModule, proxyGeneratorModule, outlookAuthClientModule, accountDatabaseModule;
 try {
   const msGraphPath = path.join(__dirname, 'utils', 'msGraphDeviceCode.js');
   const hotmailPath = path.join(__dirname, 'utils', 'hotmailRegister.js');
@@ -61,6 +61,11 @@ try {
   outlookAuthClientModule = require(outlookAuthClientPath);
   console.log('  ✅ outlookAuthClientModule loaded, exports:', Object.keys(outlookAuthClientModule));
   
+  const accountDatabasePath = path.join(__dirname, 'refactored-backend', 'database', 'accountDatabase.js');
+  console.log('  - accountDatabasePath:', accountDatabasePath);
+  accountDatabaseModule = require(accountDatabasePath);
+  console.log('  ✅ accountDatabaseModule loaded, exports:', Object.keys(accountDatabaseModule));
+  
   console.log('✅ All modules loaded successfully!');
 } catch (err) {
   console.error('❌ Failed to load modules:');
@@ -77,6 +82,7 @@ try {
   oauthAutomationModule = {};
   proxyGeneratorModule = {};
   outlookAuthClientModule = {};
+  accountDatabaseModule = { getAccountDatabase: () => null };
 }
 
 // Expose MS Graph API
@@ -370,6 +376,104 @@ contextBridge.exposeInMainWorld('proxyGeneratorAPI', {
   }
 });
 console.log('✅ proxyGeneratorAPI exposed');
+
+// Expose Account Manager API
+console.log('正在暴露 accountManagerAPI 到 window...');
+console.log('accountDatabaseModule 状态:', accountDatabaseModule ? '已加载' : '未加载');
+if (accountDatabaseModule) {
+  console.log('accountDatabaseModule.getAccountDatabase 类型:', typeof accountDatabaseModule.getAccountDatabase);
+}
+
+let accountDb = null;
+if (accountDatabaseModule && accountDatabaseModule.getAccountDatabase) {
+  try {
+    console.log('尝试调用 getAccountDatabase()...');
+    accountDb = accountDatabaseModule.getAccountDatabase();
+    console.log('  ✅ accountDb initialized:', accountDb ? '成功' : '失败');
+  } catch (err) {
+    console.error('  ❌ Failed to initialize accountDb:', err.message);
+    console.error('  Stack:', err.stack);
+  }
+} else {
+  console.error('  ❌ accountDatabaseModule 或 getAccountDatabase 不可用');
+}
+const fs = require('fs');
+
+contextBridge.exposeInMainWorld('accountManagerAPI', {
+  // 打开账号管理窗口
+  openAccountManager: () => {
+    if (!accountDb) {
+      throw new Error('账号数据库未初始化，请查看控制台了解详情');
+    }
+    
+    const { BrowserWindow } = remote;
+    const path = require('path');
+    
+    const managerWindow = new BrowserWindow({
+      width: 1200,
+      height: 800,
+      title: '账号管理',
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false,
+        enableRemoteModule: true
+      },
+      parent: remote.getCurrentWindow(),
+      modal: false,
+      show: true
+    });
+    
+    const htmlPath = path.join(__dirname, 'renderer', 'accountManager.html');
+    console.log('账号管理窗口 HTML 路径:', htmlPath);
+    managerWindow.loadFile(htmlPath);
+    
+    return {
+      id: managerWindow.id,
+      close: () => managerWindow.close()
+    };
+  },
+  
+  getAccounts: (page, pageSize, filters) => {
+    if (!accountDb) throw new Error('账号数据库未初始化');
+    return accountDb.getAccounts(page, pageSize, filters);
+  },
+  
+  updateAccountStatus: (id, statusData) => {
+    if (!accountDb) throw new Error('账号数据库未初始化');
+    return accountDb.updateAccountStatus(id, statusData);
+  },
+  
+  deleteAccount: (id) => {
+    if (!accountDb) throw new Error('账号数据库未初始化');
+    return accountDb.deleteAccount(id);
+  },
+  
+  exportAccounts: async (filters) => {
+    if (!accountDb) throw new Error('账号数据库未初始化');
+    
+    const accounts = accountDb.getAllAccounts(filters);
+    
+    // 格式化导出数据
+    const exportData = accounts.map(acc => 
+      `${acc.email}----${acc.password}----${acc.otpSecret || ''}`
+    ).join('\n');
+    
+    // 使用远程对话框
+    const { dialog } = remote;
+    const result = await dialog.showSaveDialog({
+      title: '导出账号',
+      defaultPath: `accounts_${Date.now()}.txt`,
+      filters: [
+        { name: 'Text Files', extensions: ['txt'] }
+      ]
+    });
+    
+    if (!result.canceled && result.filePath) {
+      fs.writeFileSync(result.filePath, exportData, 'utf8');
+    }
+  }
+});
+console.log('✅ accountManagerAPI exposed');
 
 // Expose Outlook Auth Client API
 console.log('正在暴露 outlookAuthAPI 到 window...');

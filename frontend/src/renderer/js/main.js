@@ -165,6 +165,23 @@ function openToolModal(toolName) {
     console.log('window.getToolContent exists:', !!window.getToolContent);
     console.log('window.getToolContent type:', typeof window.getToolContent);
     
+    // 特殊处理：账号管理工具打开独立窗口
+    if (toolName === 'account-manager') {
+        if (window.accountManagerAPI && typeof window.accountManagerAPI.openAccountManager === 'function') {
+            try {
+                window.accountManagerAPI.openAccountManager();
+                console.log('✅ 账号管理窗口已打开');
+            } catch (error) {
+                console.error('❌ 打开账号管理窗口失败:', error);
+                alert('打开账号管理窗口失败，请查看控制台了解详情');
+            }
+        } else {
+            console.error('❌ accountManagerAPI 不可用');
+            alert('账号管理功能不可用，请确保程序正确初始化');
+        }
+        return;
+    }
+    
     if (typeof window.getToolContent !== 'function') {
         console.error('❌ window.getToolContent 不是函数！可能 tools.js 没有正确加载');
         alert('错误：工具加载失败，请刷新页面重试\n详细信息请查看控制台');
