@@ -285,7 +285,19 @@ function initAmazonRegister() {
                 phone: config.phone,
                 
                 // 密码规则
-                passwordRule: config.passwordRule
+                passwordRule: config.passwordRule,
+                
+                // 代理配置（Bug修复：添加缺失的代理参数）
+                proxy: config.proxy,
+                proxyPrefix: config.proxyPrefix,
+                proxyPassword: config.proxyPassword,
+                proxyPool: config.proxyPool,
+                proxyIndex: config.proxyIndex,
+                
+                // 浏览器配置（用于代理切换）
+                platformClient: config.platformClient,
+                cache: config.cache,
+                arrange: config.arrange
             });
             
             if (!registerResult.success) {
@@ -465,6 +477,18 @@ function initAmazonRegister() {
         const emailServiceType = document.getElementById('email-service-type').value;
         const operationDelay = document.getElementById('operation-delay').value;
         const captchaApiKey = document.getElementById('captcha-api-key').value.trim();
+        
+        // 读取代理动态生成配置
+        const proxyPrefix = document.getElementById('proxy-prefix-input') ? 
+            document.getElementById('proxy-prefix-input').value.trim() : null;
+        const proxyPassword = document.getElementById('proxy-password-input') ? 
+            document.getElementById('proxy-password-input').value.trim() : null;
+        
+        console.log('[批量注册] 代理配置:', { 
+            uploadedProxies: proxyData.length, 
+            proxyPrefix, 
+            proxyPassword 
+        });
 
         // 数据验证 - 注册数按邮箱数量
         if (emailData.length === 0) {
@@ -472,13 +496,46 @@ function initAmazonRegister() {
             return;
         }
 
-        if (proxyData.length === 0) {
-            alert('❌ 请先导入代理数据');
+        // 代理验证：必须上传代理文件 或 配置代理前缀+密码
+        if (proxyData.length === 0 && (!proxyPrefix || !proxyPassword)) {
+            alert('❌ 请选择以下方式之一配置代理：\n\n1. 上传代理文件\n2. 填写代理前缀和密码（程序将自动生成）');
             return;
         }
 
         // 注册数量按邮箱数量为准
         const count = emailData.length;
+        
+        // 🔥 关键修改：如果没有上传代理文件，自动按邮箱数量生成代理
+        if (proxyData.length === 0 && proxyPrefix && proxyPassword) {
+            console.log(`[批量注册] 🎲 未上传代理文件，开始自动生成 ${count} 个代理...`);
+            
+            try {
+                // 调用代理生成API
+                if (!window.proxyGeneratorAPI) {
+                    throw new Error('proxyGeneratorAPI 未找到');
+                }
+                
+                const generatedProxies = await window.proxyGeneratorAPI.generateProxies({
+                    country: 'US',
+                    quantity: count,
+                    prefix: proxyPrefix,
+                    password: proxyPassword
+                });
+                
+                if (generatedProxies && generatedProxies.length > 0) {
+                    proxyData = generatedProxies;
+                    console.log(`[批量注册] ✅ 成功生成 ${proxyData.length} 个代理`);
+                    updateDataCount('proxy', proxyData.length);
+                } else {
+                    alert('❌ 代理生成失败：未返回有效代理');
+                    return;
+                }
+            } catch (error) {
+                console.error('[批量注册] 代理生成失败:', error);
+                alert(`❌ 代理生成失败: ${error.message}`);
+                return;
+            }
+        }
 
         // UI更新
         startBtn.disabled = true;
@@ -516,6 +573,7 @@ function initAmazonRegister() {
         isRunning = true;
         
         for (let i = 0; i < count; i++) {
+            // 每个任务分配一个代理（现在proxyData一定有数据了）
             const proxy = proxyData[i % proxyData.length];
             const emailLine = emailData[i]; // 格式: email----password
             const phone = phoneData.length > 0 ? phoneData[i % phoneData.length] : null;
@@ -542,7 +600,12 @@ function initAmazonRegister() {
                     enable2FA: enable2FA,
                     emailServiceType: emailServiceType,
                     operationDelay: operationDelay,
-                    captchaApiKey: captchaApiKey
+                    captchaApiKey: captchaApiKey,
+                    // 代理配置（保留用于代理切换时备用生成）
+                    proxyPrefix: proxyPrefix,
+                    proxyPassword: proxyPassword,
+                    proxyPool: proxyData,  // 传递整个代理池
+                    proxyIndex: i % proxyData.length
                 }
             });
         }

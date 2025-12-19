@@ -363,6 +363,12 @@ const toolDefinitions = {
                         <button id="generate-proxy-btn" style="padding: 8px 16px; background: rgba(255, 255, 255, 0.2); border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 6px; color: white; font-size: 13px; cursor: pointer; transition: all 0.3s; font-weight: 600;">🎲 代理生成</button>
                         <button id="clear-all-data-btn" style="padding: 8px 16px; background: rgba(255, 59, 48, 0.8); border: none; border-radius: 6px; color: white; font-size: 13px; cursor: pointer; transition: all 0.3s; font-weight: 600;">🗑️ 清空全部</button>
                     </div>
+                    <!-- 代理动态生成配置 -->
+                    <div style="display: flex; gap: 10px; margin-top: 10px; align-items: center;">
+                        <input type="text" id="proxy-prefix-input" placeholder="代理前缀（必填，未上传文件时自动生成）" style="flex: 1; padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.2); color: white; border: 1px solid rgba(255, 255, 255, 0.3); font-size: 13px;" value="rZwC7qlCe8">
+                        <input type="text" id="proxy-password-input" placeholder="代理密码（必填）" style="flex: 1; padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.2); color: white; border: 1px solid rgba(255, 255, 255, 0.3); font-size: 13px;" value="52572596">
+                        <div style="font-size: 11px; opacity: 0.9; padding: 0 8px; white-space: nowrap;">💡 未上传文件时按邮箱数自动生成</div>
+                    </div>
                 </div>
 
                 <!-- 统计卡片区域 -->
@@ -1205,6 +1211,694 @@ const toolDefinitions = {
                     </div>
                 </div>
             </div>
+        `
+    },
+
+// ┌──────────────────────────────────────────────────────────────┐
+// │  美国地址生成工具                                            │
+// └──────────────────────────────────────────────────────────────┘
+
+    'address-generator': {
+        title: '🏠 美国地址生成器',
+        html: `
+            <div class="tool-content">
+                <div class="section">
+                    <h3>🗺️ 美国真实地址生成</h3>
+                    <p>基于OpenStreetMap生成美国真实地址，包含完整的门牌号、街道、城市、州代码、邮编和电话号码</p>
+                </div>
+
+                <div class="section">
+                    <label>生成方式</label>
+                    <select id="generate-mode" style="width: 100%;">
+                        <option value="random">随机生成</option>
+                        <option value="postal">按邮编生成</option>
+                        <option value="batch-postal">批量邮编生成</option>
+                    </select>
+                </div>
+
+                <div class="section" id="random-options">
+                    <label>生成数量</label>
+                    <input type="number" id="address-count" value="5" min="1" max="100" style="width: 100%;">
+                    <small style="display: block; margin-top: 5px; color: #666;">
+                        建议数量: 1-20个（生成需要时间，请耐心等待）
+                    </small>
+                </div>
+
+                <div class="section" id="postal-options" style="display: none;">
+                    <label>邮政编码</label>
+                    <input type="text" id="postal-code" placeholder="例如: 10001" style="width: 100%;">
+                    <small style="display: block; margin-top: 5px; color: #666;">
+                        输入5位美国邮编
+                    </small>
+                </div>
+
+                <div class="section" id="batch-postal-options" style="display: none;">
+                    <label>邮编列表（每行一个）</label>
+                    <textarea id="postal-codes" rows="8" placeholder="10001&#10;90001&#10;60601&#10;..." style="width: 100%; font-family: monospace;"></textarea>
+                    <div style="margin-top: 10px; display: flex; gap: 10px;">
+                        <input type="file" id="postal-file" accept=".txt" style="flex: 1;">
+                        <button id="load-postal-file" class="secondary-btn">加载文件</button>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        <button id="btn-generate" class="primary-btn">🚀 开始生成</button>
+                        <button id="btn-stop" class="secondary-btn" disabled>⏸️ 停止</button>
+                        <button id="btn-clear-results" class="secondary-btn">🗑️ 清空结果</button>
+                        <button id="btn-export-text" class="secondary-btn">📄 导出TXT</button>
+                        <button id="btn-export-json" class="secondary-btn">📦 导出JSON</button>
+                        <button id="btn-export-csv" class="secondary-btn">📊 导出CSV</button>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <h4>生成结果</h4>
+                        <div style="font-size: 12px; color: #666;">
+                            <span id="success-count" style="color: #4CAF50;">成功: 0</span> |
+                            <span id="failed-count" style="color: #f44336;">失败: 0</span> |
+                            <span id="total-count">总计: 0</span>
+                        </div>
+                    </div>
+                    <div id="address-results" class="results-container" style="max-height: 400px; overflow-y: auto; background: #f5f5f5; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px;"></div>
+                </div>
+
+                <div class="section">
+                    <h4>📋 格式说明</h4>
+                    <div style="background: #fff3cd; padding: 10px; border-radius: 4px; font-size: 13px;">
+                        <strong>TXT格式：</strong> 电话----地址----城市----州代码----邮编<br>
+                        <strong>示例：</strong> +16469876543----123 Main St----New York----NY----10001<br><br>
+                        <strong>JSON格式：</strong> 完整的JSON对象数组<br>
+                        <strong>CSV格式：</strong> 表格格式，适合Excel打开
+                    </div>
+                </div>
+            </div>
+
+            <script>
+                (function() {
+                    const generateMode = document.getElementById('generate-mode');
+                    const randomOptions = document.getElementById('random-options');
+                    const postalOptions = document.getElementById('postal-options');
+                    const batchPostalOptions = document.getElementById('batch-postal-options');
+                    const btnGenerate = document.getElementById('btn-generate');
+                    const btnStop = document.getElementById('btn-stop');
+                    const btnClearResults = document.getElementById('btn-clear-results');
+                    const btnExportText = document.getElementById('btn-export-text');
+                    const btnExportJSON = document.getElementById('btn-export-json');
+                    const btnExportCSV = document.getElementById('btn-export-csv');
+                    const resultsDiv = document.getElementById('address-results');
+                    const loadFileBtn = document.getElementById('load-postal-file');
+                    const postalFileInput = document.getElementById('postal-file');
+                    
+                    let generatedAddresses = [];
+                    let isGenerating = false;
+                    let stats = { success: 0, failed: 0, total: 0 };
+                    
+                    // 切换生成模式
+                    generateMode.addEventListener('change', (e) => {
+                        randomOptions.style.display = 'none';
+                        postalOptions.style.display = 'none';
+                        batchPostalOptions.style.display = 'none';
+                        
+                        if (e.target.value === 'random') {
+                            randomOptions.style.display = 'block';
+                        } else if (e.target.value === 'postal') {
+                            postalOptions.style.display = 'block';
+                        } else if (e.target.value === 'batch-postal') {
+                            batchPostalOptions.style.display = 'block';
+                        }
+                    });
+                    
+                    // 加载邮编文件
+                    loadFileBtn.addEventListener('click', () => {
+                        postalFileInput.click();
+                    });
+                    
+                    postalFileInput.addEventListener('change', (e) => {
+                        const file = e.target.files[0];
+                        if (file) {
+                            const reader = new FileReader();
+                            reader.onload = (event) => {
+                                document.getElementById('postal-codes').value = event.target.result;
+                            };
+                            reader.readAsText(file);
+                        }
+                    });
+                    
+                    function updateStats() {
+                        document.getElementById('success-count').textContent = \`成功: \${stats.success}\`;
+                        document.getElementById('failed-count').textContent = \`失败: \${stats.failed}\`;
+                        document.getElementById('total-count').textContent = \`总计: \${stats.total}\`;
+                    }
+                    
+                    function addLog(message, type = 'info') {
+                        const time = new Date().toLocaleTimeString();
+                        const colors = {
+                            'info': '#333',
+                            'success': '#4CAF50',
+                            'error': '#f44336',
+                            'warning': '#ff9800'
+                        };
+                        resultsDiv.innerHTML += \`<div style="color: \${colors[type]}; margin: 3px 0;">[\${time}] \${message}</div>\`;
+                        resultsDiv.scrollTop = resultsDiv.scrollHeight;
+                    }
+                    
+                    function displayAddress(address, index) {
+                        const { phoneNumber, addressLine1, city, stateCode, postalCode } = address;
+                        const line = \`\${phoneNumber}----\${addressLine1}----\${city}----\${stateCode}----\${postalCode}\`;
+                        addLog(\`#\${index} ✅ \${line}\`, 'success');
+                    }
+                    
+                    // 开始生成
+                    btnGenerate.addEventListener('click', async () => {
+                        const mode = generateMode.value;
+                        
+                        if (!window.addressGeneratorAPI) {
+                            addLog('❌ 地址生成器未加载', 'error');
+                            return;
+                        }
+                        
+                        isGenerating = true;
+                        btnGenerate.disabled = true;
+                        btnStop.disabled = false;
+                        stats = { success: 0, failed: 0, total: 0 };
+                        
+                        try {
+                            if (mode === 'random') {
+                                const count = parseInt(document.getElementById('address-count').value) || 5;
+                                addLog(\`开始随机生成 \${count} 个地址...\`, 'info');
+                                
+                                const results = await window.addressGeneratorAPI.generateRandom(count);
+                                
+                                results.forEach((result, idx) => {
+                                    stats.total++;
+                                    if (result.success) {
+                                        stats.success++;
+                                        generatedAddresses.push(result.data);
+                                        displayAddress(result.data, stats.success);
+                                    } else {
+                                        stats.failed++;
+                                        addLog(\`#\${idx + 1} ❌ 生成失败: \${result.error}\`, 'error');
+                                    }
+                                    updateStats();
+                                });
+                                
+                            } else if (mode === 'postal') {
+                                const postalCode = document.getElementById('postal-code').value.trim();
+                                if (!postalCode) {
+                                    addLog('❌ 请输入邮政编码', 'error');
+                                    return;
+                                }
+                                
+                                addLog(\`开始生成邮编 \${postalCode} 的地址...\`, 'info');
+                                const result = await window.addressGeneratorAPI.generateByPostalCode(postalCode);
+                                
+                                stats.total++;
+                                if (result.success) {
+                                    stats.success++;
+                                    generatedAddresses.push(result.data);
+                                    displayAddress(result.data, stats.success);
+                                } else {
+                                    stats.failed++;
+                                    addLog(\`❌ 生成失败: \${result.error}\`, 'error');
+                                }
+                                updateStats();
+                                
+                            } else if (mode === 'batch-postal') {
+                                const postalCodesText = document.getElementById('postal-codes').value.trim();
+                                if (!postalCodesText) {
+                                    addLog('❌ 请输入邮编列表', 'error');
+                                    return;
+                                }
+                                
+                                const postalCodes = postalCodesText.split('\\n').map(line => line.trim()).filter(line => line);
+                                addLog(\`开始批量生成 \${postalCodes.length} 个邮编的地址...\`, 'info');
+                                
+                                const results = await window.addressGeneratorAPI.generateByPostalCodes(postalCodes);
+                                
+                                results.forEach((result, idx) => {
+                                    stats.total++;
+                                    if (result.success) {
+                                        stats.success++;
+                                        generatedAddresses.push(result.data);
+                                        displayAddress(result.data, stats.success);
+                                    } else {
+                                        stats.failed++;
+                                        addLog(\`#\${idx + 1} ❌ 邮编 \${result.postalCode} 生成失败: \${result.error}\`, 'error');
+                                    }
+                                    updateStats();
+                                });
+                            }
+                            
+                            addLog(\`🎉 生成完成！成功: \${stats.success}, 失败: \${stats.failed}\`, 'success');
+                            
+                        } catch (error) {
+                            addLog(\`❌ 生成过程出错: \${error.message}\`, 'error');
+                            console.error(error);
+                        } finally {
+                            isGenerating = false;
+                            btnGenerate.disabled = false;
+                            btnStop.disabled = true;
+                        }
+                    });
+                    
+                    // 停止生成
+                    btnStop.addEventListener('click', () => {
+                        isGenerating = false;
+                        btnStop.disabled = true;
+                        addLog('⏸️ 已停止生成', 'warning');
+                    });
+                    
+                    // 清空结果
+                    btnClearResults.addEventListener('click', () => {
+                        generatedAddresses = [];
+                        resultsDiv.innerHTML = '';
+                        stats = { success: 0, failed: 0, total: 0 };
+                        updateStats();
+                    });
+                    
+                    // 导出TXT
+                    btnExportText.addEventListener('click', () => {
+                        if (generatedAddresses.length === 0) {
+                            addLog('❌ 没有可导出的地址', 'error');
+                            return;
+                        }
+                        
+                        const content = window.addressGeneratorAPI.formatForExport(
+                            generatedAddresses.map(data => ({ success: true, data })),
+                            'text'
+                        );
+                        
+                        const blob = new Blob([content], { type: 'text/plain' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = \`addresses_\${Date.now()}.txt\`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                        
+                        addLog(\`✅ 已导出 \${generatedAddresses.length} 个地址到TXT文件\`, 'success');
+                    });
+                    
+                    // 导出JSON
+                    btnExportJSON.addEventListener('click', () => {
+                        if (generatedAddresses.length === 0) {
+                            addLog('❌ 没有可导出的地址', 'error');
+                            return;
+                        }
+                        
+                        const content = window.addressGeneratorAPI.formatForExport(
+                            generatedAddresses.map(data => ({ success: true, data })),
+                            'json'
+                        );
+                        
+                        const blob = new Blob([content], { type: 'application/json' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = \`addresses_\${Date.now()}.json\`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                        
+                        addLog(\`✅ 已导出 \${generatedAddresses.length} 个地址到JSON文件\`, 'success');
+                    });
+                    
+                    // 导出CSV
+                    btnExportCSV.addEventListener('click', () => {
+                        if (generatedAddresses.length === 0) {
+                            addLog('❌ 没有可导出的地址', 'error');
+                            return;
+                        }
+                        
+                        const content = window.addressGeneratorAPI.formatForExport(
+                            generatedAddresses.map(data => ({ success: true, data })),
+                            'csv'
+                        );
+                        
+                        const blob = new Blob([content], { type: 'text/csv' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = \`addresses_\${Date.now()}.csv\`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                        
+                        addLog(\`✅ 已导出 \${generatedAddresses.length} 个地址到CSV文件\`, 'success');
+                    });
+                })();
+            </script>
+        `
+    },
+
+// ┌──────────────────────────────────────────────────────────────┐
+// │  2FA验证码生成工具                                           │
+// └──────────────────────────────────────────────────────────────┘
+
+    'totp-generator': {
+        title: '🔐 2FA验证码生成器',
+        html: `
+            <div class="tool-content">
+                <div class="section">
+                    <h3>🔑 TOTP验证码生成</h3>
+                    <p>支持Google Authenticator、Microsoft Authenticator等2FA应用的验证码生成</p>
+                </div>
+
+                <div class="section">
+                    <label>生成模式</label>
+                    <select id="totp-mode" style="width: 100%;">
+                        <option value="single">单个密钥</option>
+                        <option value="batch">批量密钥</option>
+                        <option value="uri">解析otpauth URI</option>
+                    </select>
+                </div>
+
+                <div class="section" id="single-mode">
+                    <label>密钥（Secret Key）</label>
+                    <input type="text" id="totp-secret" value="JBSWY3DPEHPK3PXP" placeholder="输入Base32格式的密钥" style="width: 100%; font-family: monospace;">
+                    <small style="display: block; margin-top: 5px; color: #666;">
+                        💡 已填入示例密钥，可直接点击生成按钮测试。支持带空格或连字符的格式
+                    </small>
+                </div>
+
+                <div class="section" id="batch-mode" style="display: none;">
+                    <label>密钥列表（每行一个）</label>
+                    <textarea id="totp-secrets" rows="8" placeholder="JBSWY3DPEHPK3PXP&#10;HXDMVJECJJWSRB3H&#10;..." style="width: 100%; font-family: monospace;"></textarea>
+                    <div style="margin-top: 10px; display: flex; gap: 10px;">
+                        <input type="file" id="secrets-file" accept=".txt" style="flex: 1;">
+                        <button id="load-secrets-file" class="secondary-btn">加载文件</button>
+                    </div>
+                </div>
+
+                <div class="section" id="uri-mode" style="display: none;">
+                    <label>otpauth URI</label>
+                    <textarea id="otpauth-uri" rows="3" placeholder="otpauth://totp/Example:user@example.com?secret=JBSWY3DPEHPK3PXP&issuer=Example" style="width: 100%; font-family: monospace;"></textarea>
+                    <small style="display: block; margin-top: 5px; color: #666;">
+                        从二维码或配置中获取的完整URI
+                    </small>
+                </div>
+
+                <div class="section">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                        <div>
+                            <label>时间步长（秒）</label>
+                            <input type="number" id="time-step" value="30" min="1" max="60" style="width: 100%;">
+                        </div>
+                        <div>
+                            <label>验证码位数</label>
+                            <input type="number" id="code-digits" value="6" min="6" max="8" style="width: 100%;">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        <button id="btn-generate-totp" class="primary-btn">🚀 生成验证码</button>
+                        <button id="btn-auto-refresh" class="secondary-btn">⏱️ 自动刷新</button>
+                        <button id="btn-stop-refresh" class="secondary-btn" disabled>⏸️ 停止刷新</button>
+                        <button id="btn-clear-totp" class="secondary-btn">🗑️ 清空</button>
+                        <button id="btn-copy-codes" class="secondary-btn">📋 复制全部</button>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <h4>生成结果</h4>
+                        <div style="font-size: 12px; color: #666;">
+                            <span id="totp-count">验证码数: 0</span>
+                        </div>
+                    </div>
+                    <div id="totp-results" class="results-container" style="max-height: 400px; overflow-y: auto; background: #f5f5f5; padding: 15px; border-radius: 4px;"></div>
+                </div>
+
+                <div class="section">
+                    <h4>💡 使用说明</h4>
+                    <div style="background: #e3f2fd; padding: 12px; border-radius: 4px; font-size: 13px; line-height: 1.6;">
+                        <strong>1. 获取密钥：</strong>在Amazon注册时，2FA绑定页面会显示一串Base32密钥（例如：JBSW Y3DP EHPK 3PXP）<br>
+                        <strong>2. 输入密钥：</strong>将密钥复制粘贴到输入框（带空格也可以）<br>
+                        <strong>3. 生成验证码：</strong>点击"生成验证码"按钮，获得6位数字验证码<br>
+                        <strong>4. 自动刷新：</strong>点击"自动刷新"可实时更新验证码（每秒刷新）<br>
+                        <strong>5. 剩余时间：</strong>验证码每30秒更新一次，显示当前验证码的剩余有效时间<br>
+                        <strong>6. 批量生成：</strong>可以同时为多个密钥生成验证码
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h4>⚠️ 注意事项</h4>
+                    <div style="background: #fff3cd; padding: 12px; border-radius: 4px; font-size: 13px; line-height: 1.6;">
+                        • 密钥必须是Base32格式（A-Z和2-7）<br>
+                        • 默认时间步长为30秒（与大多数2FA应用一致）<br>
+                        • 验证码在剩余时间小于5秒时可能已过期<br>
+                        • 请妥善保管密钥，不要泄露给他人
+                    </div>
+                </div>
+            </div>
+
+            <script>
+                (function() {
+                    const totpMode = document.getElementById('totp-mode');
+                    const singleMode = document.getElementById('single-mode');
+                    const batchMode = document.getElementById('batch-mode');
+                    const uriMode = document.getElementById('uri-mode');
+                    const btnGenerate = document.getElementById('btn-generate-totp');
+                    const btnAutoRefresh = document.getElementById('btn-auto-refresh');
+                    const btnStopRefresh = document.getElementById('btn-stop-refresh');
+                    const btnClear = document.getElementById('btn-clear-totp');
+                    const btnCopyCodes = document.getElementById('btn-copy-codes');
+                    const resultsDiv = document.getElementById('totp-results');
+                    const loadFileBtn = document.getElementById('load-secrets-file');
+                    const secretsFileInput = document.getElementById('secrets-file');
+                    
+                    let autoRefreshTimer = null;
+                    let generatedCodes = [];
+                    
+                    // 切换模式
+                    totpMode.addEventListener('change', (e) => {
+                        singleMode.style.display = 'none';
+                        batchMode.style.display = 'none';
+                        uriMode.style.display = 'none';
+                        
+                        if (e.target.value === 'single') {
+                            singleMode.style.display = 'block';
+                        } else if (e.target.value === 'batch') {
+                            batchMode.style.display = 'block';
+                        } else if (e.target.value === 'uri') {
+                            uriMode.style.display = 'block';
+                        }
+                    });
+                    
+                    // 加载密钥文件
+                    loadFileBtn.addEventListener('click', () => {
+                        secretsFileInput.click();
+                    });
+                    
+                    secretsFileInput.addEventListener('change', (e) => {
+                        const file = e.target.files[0];
+                        if (file) {
+                            const reader = new FileReader();
+                            reader.onload = (event) => {
+                                document.getElementById('totp-secrets').value = event.target.result;
+                            };
+                            reader.readAsText(file);
+                        }
+                    });
+                    
+                    function displayCode(result, index) {
+                        const { code, remainingTime, secret, error } = result;
+                        
+                        if (error) {
+                            return \`
+                                <div style="background: #ffebee; padding: 12px; border-radius: 6px; margin-bottom: 10px; border-left: 4px solid #f44336;">
+                                    <div style="color: #c62828; font-weight: bold;">❌ #\${index} 生成失败</div>
+                                    <div style="color: #666; font-size: 12px; margin-top: 4px;">\${error}</div>
+                                </div>
+                            \`;
+                        }
+                        
+                        const timeColor = remainingTime <= 5 ? '#f44336' : remainingTime <= 10 ? '#ff9800' : '#4CAF50';
+                        const timeWidth = (remainingTime / 30) * 100;
+                        
+                        return \`
+                            <div style="background: white; padding: 15px; border-radius: 8px; margin-bottom: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                    <span style="color: #666; font-size: 12px;">#\${index}</span>
+                                    <span style="color: \${timeColor}; font-weight: bold; font-size: 14px;">⏱️ \${remainingTime}秒</span>
+                                </div>
+                                <div style="font-family: 'Courier New', monospace; font-size: 32px; font-weight: bold; text-align: center; letter-spacing: 8px; color: #1976d2; margin: 10px 0;">
+                                    \${code}
+                                </div>
+                                <div style="height: 4px; background: #e0e0e0; border-radius: 2px; overflow: hidden; margin: 10px 0;">
+                                    <div style="height: 100%; background: \${timeColor}; width: \${timeWidth}%; transition: width 1s linear;"></div>
+                                </div>
+                                \${secret ? \`<div style="font-size: 11px; color: #999; word-break: break-all; margin-top: 8px;">密钥: \${secret}</div>\` : ''}
+                            </div>
+                        \`;
+                    }
+                    
+                    function updateDisplay() {
+                        if (generatedCodes.length === 0) {
+                            resultsDiv.innerHTML = '<div style="text-align: center; padding: 40px; color: #999;">暂无验证码</div>';
+                            return;
+                        }
+                        
+                        const mode = totpMode.value;
+                        const timeStep = parseInt(document.getElementById('time-step').value) || 30;
+                        const digits = parseInt(document.getElementById('code-digits').value) || 6;
+                        
+                        if (mode === 'single' || mode === 'uri') {
+                            const result = window.twoFactorAPI.generateCode(generatedCodes[0], timeStep, digits);
+                            resultsDiv.innerHTML = displayCode({ ...result, secret: generatedCodes[0] }, 1);
+                        } else if (mode === 'batch') {
+                            const results = window.twoFactorAPI.batchGenerate(generatedCodes, timeStep, digits);
+                            resultsDiv.innerHTML = results.map(r => displayCode(r, r.index)).join('');
+                        }
+                        
+                        document.getElementById('totp-count').textContent = \`验证码数: \${generatedCodes.length}\`;
+                    }
+                    
+                    // 生成验证码
+                    btnGenerate.addEventListener('click', () => {
+                        if (!window.twoFactorAPI) {
+                            alert('❌ 2FA生成器未加载');
+                            return;
+                        }
+                        
+                        const mode = totpMode.value;
+                        generatedCodes = [];
+                        
+                        try {
+                            if (mode === 'single') {
+                                const secret = document.getElementById('totp-secret').value.trim();
+                                if (!secret) {
+                                    alert('请输入密钥');
+                                    return;
+                                }
+                                
+                                if (!window.twoFactorAPI.validateSecret(secret)) {
+                                    alert('密钥格式错误！必须是Base32格式（A-Z和2-7）');
+                                    return;
+                                }
+                                
+                                generatedCodes = [secret];
+                                
+                            } else if (mode === 'batch') {
+                                const secretsText = document.getElementById('totp-secrets').value.trim();
+                                if (!secretsText) {
+                                    alert('请输入密钥列表');
+                                    return;
+                                }
+                                
+                                const secrets = secretsText.split('\\n').map(s => s.trim()).filter(s => s);
+                                
+                                // 验证所有密钥
+                                const invalidSecrets = secrets.filter(s => !window.twoFactorAPI.validateSecret(s));
+                                if (invalidSecrets.length > 0) {
+                                    alert(\`发现 \${invalidSecrets.length} 个无效密钥，请检查格式\`);
+                                    return;
+                                }
+                                
+                                generatedCodes = secrets;
+                                
+                            } else if (mode === 'uri') {
+                                const uri = document.getElementById('otpauth-uri').value.trim();
+                                if (!uri) {
+                                    alert('请输入otpauth URI');
+                                    return;
+                                }
+                                
+                                const parsed = window.twoFactorAPI.parseOtpAuthUri(uri);
+                                if (!parsed.success) {
+                                    alert(\`解析失败: \${parsed.error}\`);
+                                    return;
+                                }
+                                
+                                generatedCodes = [parsed.secret];
+                                
+                                // 自动填充参数
+                                document.getElementById('time-step').value = parsed.period || 30;
+                                document.getElementById('code-digits').value = parsed.digits || 6;
+                            }
+                            
+                            updateDisplay();
+                            
+                        } catch (error) {
+                            alert(\`生成失败: \${error.message}\`);
+                            console.error(error);
+                        }
+                    });
+                    
+                    // 自动刷新
+                    btnAutoRefresh.addEventListener('click', () => {
+                        if (generatedCodes.length === 0) {
+                            alert('请先生成验证码');
+                            return;
+                        }
+                        
+                        btnAutoRefresh.disabled = true;
+                        btnStopRefresh.disabled = false;
+                        btnGenerate.disabled = true;
+                        
+                        autoRefreshTimer = setInterval(() => {
+                            updateDisplay();
+                        }, 1000);
+                    });
+                    
+                    // 停止刷新
+                    btnStopRefresh.addEventListener('click', () => {
+                        if (autoRefreshTimer) {
+                            clearInterval(autoRefreshTimer);
+                            autoRefreshTimer = null;
+                        }
+                        
+                        btnAutoRefresh.disabled = false;
+                        btnStopRefresh.disabled = true;
+                        btnGenerate.disabled = false;
+                    });
+                    
+                    // 清空
+                    btnClear.addEventListener('click', () => {
+                        generatedCodes = [];
+                        resultsDiv.innerHTML = '<div style="text-align: center; padding: 40px; color: #999;">暂无验证码</div>';
+                        document.getElementById('totp-count').textContent = '验证码数: 0';
+                        
+                        if (autoRefreshTimer) {
+                            clearInterval(autoRefreshTimer);
+                            autoRefreshTimer = null;
+                            btnAutoRefresh.disabled = false;
+                            btnStopRefresh.disabled = true;
+                            btnGenerate.disabled = false;
+                        }
+                    });
+                    
+                    // 复制全部
+                    btnCopyCodes.addEventListener('click', () => {
+                        if (generatedCodes.length === 0) {
+                            alert('没有可复制的验证码');
+                            return;
+                        }
+                        
+                        const mode = totpMode.value;
+                        const timeStep = parseInt(document.getElementById('time-step').value) || 30;
+                        const digits = parseInt(document.getElementById('code-digits').value) || 6;
+                        
+                        let text = '';
+                        
+                        if (mode === 'single' || mode === 'uri') {
+                            const result = window.twoFactorAPI.generateCode(generatedCodes[0], timeStep, digits);
+                            text = result.code;
+                        } else if (mode === 'batch') {
+                            const results = window.twoFactorAPI.batchGenerate(generatedCodes, timeStep, digits);
+                            text = results.map(r => \`\${r.index}. \${r.code} (剩余\${r.remainingTime}秒)\`).join('\\n');
+                        }
+                        
+                        navigator.clipboard.writeText(text).then(() => {
+                            alert('✅ 已复制到剪贴板');
+                        }).catch(err => {
+                            alert('❌ 复制失败: ' + err.message);
+                        });
+                    });
+                })();
+            </script>
         `
     }
 

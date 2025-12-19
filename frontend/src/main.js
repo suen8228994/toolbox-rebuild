@@ -462,6 +462,18 @@ ipcMain.handle('amazon:executeRegisterScript', async (event, config) => {
       // 重试配置
       maxRetries: config.maxRetries || 3,
       
+      // 代理配置
+      proxy: config.proxy || null,
+      proxyPrefix: config.proxyPrefix || null,
+      proxyPassword: config.proxyPassword || null,
+      proxyPool: config.proxyPool || [],
+      proxyIndex: config.proxyIndex || 0,
+      
+      // 浏览器配置（用于代理切换时重新创建浏览器）
+      platformClient: config.platformClient || 'sell',
+      cache: config.cache !== false,
+      arrange: config.arrange !== false,
+      
       // 时间戳（用于邮箱验证码筛选）
       registerTime: Date.now()
     };
@@ -471,6 +483,28 @@ ipcMain.handle('amazon:executeRegisterScript', async (event, config) => {
     console.log(`[任务 ${taskId}] 注册实例已创建，开始执行...`);
     
     const result = await registerCore.execute();
+    
+    // 如果发生了代理切换，更新browserInstances Map
+    if (coreConfig.containerCode !== registerCore.config.containerCode) {
+      console.log(`[任务 ${taskId}] 检测到代理切换，更新browserInstances Map`);
+      console.log(`[任务 ${taskId}] 旧容器: ${coreConfig.containerCode} -> 新容器: ${registerCore.config.containerCode}`);
+      
+      // 删除旧的映射
+      if (browserInstances.has(coreConfig.containerCode)) {
+        browserInstances.delete(coreConfig.containerCode);
+      }
+      
+      // 添加新的映射
+      browserInstances.set(registerCore.config.containerCode, {
+        browser: registerCore.config.browser,
+        page: registerCore.config.page,
+        hubstudio: registerCore.config.hubstudio,
+        containerCode: registerCore.config.containerCode,
+        createdAt: Date.now()
+      });
+      
+      console.log(`[任务 ${taskId}] browserInstances Map已更新，当前实例数: ${browserInstances.size}`);
+    }
     
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
     console.log(`[任务 ${taskId}] 注册流程执行完成，耗时: ${duration}秒`);

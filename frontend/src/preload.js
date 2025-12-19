@@ -7,7 +7,7 @@ console.log('=== Preload script loaded ===');
 console.log('__dirname:', __dirname);
 
 // Load modules (sandbox must be disabled in main.js)
-let msGraphModule, hotmailModule, msGraphROPCModule, emailDbModule, authScriptModule, accountImporterModule, playwrightRegisterModule, oauthAutomationModule, proxyGeneratorModule, outlookAuthClientModule, accountDatabaseModule;
+let msGraphModule, hotmailModule, msGraphROPCModule, emailDbModule, authScriptModule, accountImporterModule, playwrightRegisterModule, oauthAutomationModule, proxyGeneratorModule, outlookAuthClientModule, accountDatabaseModule, addressGeneratorModule, twoFactorGeneratorModule;
 try {
   const msGraphPath = path.join(__dirname, 'utils', 'msGraphDeviceCode.js');
   const hotmailPath = path.join(__dirname, 'utils', 'hotmailRegister.js');
@@ -19,6 +19,8 @@ try {
   const oauthAutomationPath = path.join(__dirname, 'utils', 'oauthAutomation.js');
   const proxyGeneratorPath = path.join(__dirname, 'utils', 'proxyGenerator.js');
   const outlookAuthClientPath = path.join(__dirname, 'utils', 'outlookAuthClient.js');
+  const addressGeneratorPath = path.join(__dirname, 'utils', 'addressGenerator.js');
+  const twoFactorGeneratorPath = path.join(__dirname, 'utils', 'twoFactorGenerator.js');
   
   console.log('尝试加载模块:');
   console.log('  - msGraphPath:', msGraphPath);
@@ -66,6 +68,12 @@ try {
   accountDatabaseModule = require(accountDatabasePath);
   console.log('  ✅ accountDatabaseModule loaded, exports:', Object.keys(accountDatabaseModule));
   
+  addressGeneratorModule = require(addressGeneratorPath);
+  console.log('  ✅ addressGeneratorModule loaded');
+  
+  twoFactorGeneratorModule = require(twoFactorGeneratorPath);
+  console.log('  ✅ twoFactorGeneratorModule loaded');
+  
   console.log('✅ All modules loaded successfully!');
 } catch (err) {
   console.error('❌ Failed to load modules:');
@@ -83,6 +91,8 @@ try {
   proxyGeneratorModule = {};
   outlookAuthClientModule = {};
   accountDatabaseModule = { getAccountDatabase: () => null };
+  addressGeneratorModule = null;
+  twoFactorGeneratorModule = null;
 }
 
 // Expose MS Graph API
@@ -542,6 +552,90 @@ contextBridge.exposeInMainWorld('amazonBrowserAPI', {
   }
 });
 console.log('✅ amazonBrowserAPI exposed');
+
+// Expose Address Generator API
+console.log('正在暴露 addressGeneratorAPI 到 window...');
+contextBridge.exposeInMainWorld('addressGeneratorAPI', {
+  generateRandom: async (count) => {
+    console.log('addressGeneratorAPI.generateRandom called, count:', count);
+    if (!addressGeneratorModule) {
+      throw new Error('Address Generator module not available');
+    }
+    const generator = new addressGeneratorModule();
+    return await generator.generateRandomAddresses(count);
+  },
+  generateByPostalCode: async (postalCode) => {
+    console.log('addressGeneratorAPI.generateByPostalCode called, postalCode:', postalCode);
+    if (!addressGeneratorModule) {
+      throw new Error('Address Generator module not available');
+    }
+    const generator = new addressGeneratorModule();
+    return await generator.generateAddressByPostalCode(postalCode);
+  },
+  generateByPostalCodes: async (postalCodes) => {
+    console.log('addressGeneratorAPI.generateByPostalCodes called, count:', postalCodes.length);
+    if (!addressGeneratorModule) {
+      throw new Error('Address Generator module not available');
+    }
+    const generator = new addressGeneratorModule();
+    return await generator.generateAddressesByPostalCodes(postalCodes);
+  },
+  formatForExport: (addresses, format) => {
+    console.log('addressGeneratorAPI.formatForExport called, format:', format);
+    if (!addressGeneratorModule) {
+      throw new Error('Address Generator module not available');
+    }
+    const generator = new addressGeneratorModule();
+    return generator.formatAddressesForExport(addresses, format);
+  }
+});
+console.log('✅ addressGeneratorAPI exposed');
+
+// Expose Two-Factor Authentication Generator API
+console.log('正在暴露 twoFactorAPI 到 window...');
+contextBridge.exposeInMainWorld('twoFactorAPI', {
+  generateCode: (secret, timeStep, digits) => {
+    console.log('twoFactorAPI.generateCode called');
+    if (!twoFactorGeneratorModule) {
+      throw new Error('Two-Factor Generator module not available');
+    }
+    const generator = new twoFactorGeneratorModule();
+    return generator.generateTOTP(secret, timeStep, digits);
+  },
+  validateSecret: (secret) => {
+    console.log('twoFactorAPI.validateSecret called');
+    if (!twoFactorGeneratorModule) {
+      throw new Error('Two-Factor Generator module not available');
+    }
+    const generator = new twoFactorGeneratorModule();
+    return generator.validateSecret(secret);
+  },
+  formatSecret: (secret) => {
+    console.log('twoFactorAPI.formatSecret called');
+    if (!twoFactorGeneratorModule) {
+      throw new Error('Two-Factor Generator module not available');
+    }
+    const generator = new twoFactorGeneratorModule();
+    return generator.formatSecret(secret);
+  },
+  batchGenerate: (secrets, timeStep, digits) => {
+    console.log('twoFactorAPI.batchGenerate called, count:', secrets.length);
+    if (!twoFactorGeneratorModule) {
+      throw new Error('Two-Factor Generator module not available');
+    }
+    const generator = new twoFactorGeneratorModule();
+    return generator.batchGenerateTOTP(secrets, timeStep, digits);
+  },
+  parseOtpAuthUri: (uri) => {
+    console.log('twoFactorAPI.parseOtpAuthUri called');
+    if (!twoFactorGeneratorModule) {
+      throw new Error('Two-Factor Generator module not available');
+    }
+    const generator = new twoFactorGeneratorModule();
+    return generator.parseOtpAuthUri(uri);
+  }
+});
+console.log('✅ twoFactorAPI exposed');
 
 console.log('=== Preload script完成 ===');
 

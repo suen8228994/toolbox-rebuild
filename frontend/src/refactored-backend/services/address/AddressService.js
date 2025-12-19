@@ -38,14 +38,18 @@ class AddressService {
    * @returns {Promise<Object>} 随机地址信息
    */
   async generateRandomAddress() {
+    console.log('[AddressService] 开始生成随机地址');
     const { postalCode, locationBounds } = await this.#getRandomGeographyInfo();
+    console.log('[AddressService] 获取到邮编和边界:', postalCode, locationBounds);
     
     if (!this.#boundingBoxCache.get(postalCode)) {
       this.#boundingBoxCache.set(postalCode, locationBounds);
+      console.log('[AddressService] 缓存边界信息');
     }
 
     const addressData = await this.#getAddressFromCoordinates(postalCode);
     this.#boundingBoxCache.delete(postalCode);
+    console.log('[AddressService] 生成地址成功');
 
     return {
       data: {
@@ -61,10 +65,17 @@ class AddressService {
    * @private
    */
   async #getAddressFromCoordinates(postalCode) {
+    let attemptCount = 0;
     const addressPolling = createPollingFactory({
+      maxWait: 60000,  // 增加到60秒
+      interval: 2000,  // 减少间隔到2秒，增加尝试次数
+      error(err) {
+        attemptCount++;
+        console.log(`[AddressService] 第 ${attemptCount} 次尝试失败: ${err.message}`);
+      },
       complete() {
         throw new CustomError({
-          message: '获取随机位置信息失败',
+          message: `获取随机位置信息失败（尝试了 ${attemptCount} 次）`,
           logID: 'Error-Info'
         });
       }
@@ -86,12 +97,44 @@ class AddressService {
       this.#validateContentType(response.headers.get('content-type'));
       const data = await response.json();
 
-      if (!data || !data.address.house_number) {
-        throw new Error('没有房屋编号，重新获取');
+      if (!data || !data.address) {
+        throw new Error(`API返回数据不完整: ${JSON.stringify(data)}`);
       }
 
-      const { state, house_number, road, city } = data.address;
+      if (!data.address.house_number) {
+        throw new Error(`没有房屋编号 (lat: ${lat.toFixed(4)}, lon: ${lon.toFixed(4)})`);
+      }
+
+      // OpenStreetMap API 返回的地址字段可能有多种命名方式
+      const address = data.address;
+      const state = address.state;
+      const house_number = address.house_number;
+      const road = address.road;
+      
+      // 验证必需字段
+      if (!state) {
+        throw new Error(`缺少州信息: ${JSON.stringify(address)}`);
+      }
+      if (!road) {
+        throw new Error(`缺少道路信息: ${JSON.stringify(address)}`);
+      }
+      
+      // city 可能是 city, town, village, hamlet, municipality 等
+      const city = address.city || 
+                   address.town || 
+                   address.village || 
+                   address.hamlet || 
+                   address.municipality || 
+                   address.county || 
+                   'Unknown';
+      
       const stateCode = stateAbbreviations[state];
+      
+      // 如果州代码未找到，抛出错误重新获取
+      if (!stateCode) {
+        throw new Error(`未找到州代码: ${state}，重新获取`);
+      }
+      
       const phoneNumber = this.#generateRandomPhoneNumber(stateCode);
 
       return {
@@ -108,10 +151,17 @@ class AddressService {
    * @private
    */
   async #getLocationByPostalCode(postalCode) {
+    let attemptCount = 0;
     const postalPolling = createPollingFactory({
+      maxWait: 40000,
+      interval: 2000,
+      error(err) {
+        attemptCount++;
+        console.log(`[AddressService] 邮编查询第 ${attemptCount} 次失败: ${err.message}`);
+      },
       complete() {
         throw new CustomError({
-          message: '通过邮编获取地理信息失败',
+          message: `通过邮编获取地理信息失败（尝试了 ${attemptCount} 次）`,
           logID: 'Error-Info'
         });
       }
@@ -171,10 +221,17 @@ class AddressService {
    * @private
    */
   #getRandomGeographyInfo() {
+    let attemptCount = 0;
     const geographyPolling = createPollingFactory({
+      maxWait: 40000,
+      interval: 2000,
+      error(err) {
+        attemptCount++;
+        console.log(`[AddressService] 随机地理第 ${attemptCount} 次失败: ${err.message}`);
+      },
       complete() {
         throw new CustomError({
-          message: '获取随机地理信息失败',
+          message: `获取随机地理信息失败（尝试了 ${attemptCount} 次）`,
           logID: 'Error-Info'
         });
       }
@@ -182,6 +239,7 @@ class AddressService {
 
     return geographyPolling(async () => {
       const { lat, lon } = this.#getRandomUSCoordinate();
+      console.log(`[AddressService] 尝试随机坐标: lat=${lat.toFixed(4)}, lon=${lon.toFixed(4)}`);
       
       const response = await fetch(
         `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`,
@@ -197,9 +255,10 @@ class AddressService {
       const data = await response.json();
 
       if (!data || !data.address?.postcode) {
-        throw new Error('获取随机邮编地理数据失败');
+        throw new Error(`获取随机邮编地理数据失败 (lat: ${lat.toFixed(4)}, lon: ${lon.toFixed(4)})`);
       }
 
+      console.log(`[AddressService] 找到邮编: ${data.address.postcode}`);
       return {
         locationBounds: data.boundingbox,
         postalCode: data.address.postcode

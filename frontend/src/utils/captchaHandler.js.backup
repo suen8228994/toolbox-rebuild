@@ -1,0 +1,325 @@
+/**
+ * Amazon Captcha 处理模块
+ * 
+ * 此模块专门处理Amazon注册过程中的图片验证码
+ * 独立文件，避免被其他代码修改影响
+ * 
+ * ⚠️ 警告：请勿随意修改此文件！
+ * 此代码经过多次测试验证，已经稳定工作
+ */
+
+const {
+  generateRandomDelay: utilRandomAround,
+  generateFluctuatingDelay: utilFluctuateAround,
+  generateGridPositions: utilGenerateGridPositions,
+  createPollingFactory
+} = require('../refactored-backend/utils/toolUtils');
+
+class CaptchaHandler {
+  constructor(page, tasklog, registerTime) {
+    this.page = page;
+    this.tasklog = tasklog;
+    this.registerTime = registerTime;
+  }
+
+  /**
+   * 检测是否需要处理Captcha
+   * 
+   * 参考toolbox源码，同时增强检测能力
+   * 优先检测toolbox支持的canvas验证码
+   * 
+   * ⚠️ 注意：邮箱验证码页面(Enter security code)不是图片验证码！
+   */
+  async checkCaptcha() {
+    try {
+      this.tasklog({ message: '检测验证码...', logID: 'RG-Info-Operate' });
+      
+      // 【重要】先排除邮箱验证码页面（OTP输入框）
+      const currentUrl = this.page.url();
+      if (currentUrl.includes('/ap/cvf/')) {
+        // 检查是否是邮箱验证页面
+        const pageContent = await this.page.content();
+        
+        // 邮箱验证页面特征：包含 "Verify email" 或 "Enter security code" 或有 OTP 输入框
+        const isEmailOTPPage = 
+          pageContent.includes('Verify email address') ||
+          pageContent.includes('Enter security code') ||
+          pageContent.includes('One Time Password') ||
+          await this.page.locator('input[name="cvf_captcha_input"]').count() > 0;
+        
+        if (isEmailOTPPage) {
+          this.tasklog({ message: '✓ 检测到邮箱验证页面（非图片验证码）', logID: 'RG-Info-Operate' });
+          console.log('[验证码] 这是邮箱OTP验证页面，不是图片验证码');
+          return false; // 不是图片验证码，返回 false
+        }
+      }
+      
+      // 优先检测：canvas验证码容器（toolbox原始逻辑）
+      try {
+        await this.page.locator('#cvf-aamation-container').waitFor({ timeout: 3000 });
+        this.tasklog({ message: '✅ 检测到canvas验证码容器', logID: 'RG-Info-Operate' });
+        return true;
+      } catch (e) {
+        // 继续检测其他形式
+      }
+      
+      // 辅助检测：URL特征 + 内容特征（快速判断）
+      if (currentUrl.includes('/captcha')) {
+        this.tasklog({ message: '✅ URL包含验证码特征', logID: 'RG-Info-Operate' });
+        console.log('[验证码] 当前URL:', currentUrl);
+        
+        // 检查是否是图片选择类型
+        const pageContent = await this.page.content();
+        if (pageContent.includes('Solve this puzzle') || pageContent.includes('Choose all the')) {
+          this.tasklog({ message: '⚠️ 检测到图片选择验证码（非canvas类型）', logID: 'Warn-Info' });
+          return true;
+        }
+        
+        // 可能是其他类型的验证码页面
+        return true;
+      }
+      
+      // 未检测到验证码
+      this.tasklog({ message: '✓ 无需验证码', logID: 'RG-Info-Operate' });
+      return false;
+      
+    } catch (error) {
+      this.tasklog({ message: `验证码检测错误: ${error.message}`, logID: 'Warn-Info' });
+      return false;
+    }
+  }
+
+  /**
+   * 完整的Captcha处理流程
+   * 恢复原有的详细处理逻辑
+   */
+  async solveCaptcha() {
+    try {
+      this.tasklog({ message: '========== 开始处理验证码 ==========', logID: 'RG-Info-Operate' });
+      
+      // 1. 获取验证码数据
+      this.tasklog({ message: '步骤1: 获取验证码数据...', logID: 'RG-Info-Operate' });
+      const captchaSource = await this.getCaptchaData();
+      
+      if (!captchaSource) {
+        this.tasklog({ message: '未能获取验证码数据', logID: 'Error-Info' });
+        throw new Error('获取验证码数据失败');
+      }
+      
+      // 2. 调用 API 解析验证码
+      this.tasklog({ message: '步骤2: 调用 API 解析验证码...', logID: 'RG-Info-Operate' });
+      const result = await this.getCaptchaSolution(captchaSource);
+      
+      if (!result || result.length === 0) {
+        this.tasklog({ message: 'API 未返回有效结果', logID: 'Error-Info' });
+        throw new Error('验证码解析失败');
+      }
+      
+      // 3. 生成点击坐标
+      this.tasklog({ message: `步骤3: 生成 ${result.length} 个点击坐标...`, logID: 'RG-Info-Operate' });
+      const position = utilGenerateGridPositions({
+        width: 324,
+        height: 324,
+        source: result,
+        gap: 16,
+        padding: 16
+      });
+      
+      this.tasklog({ message: `生成坐标完成: ${JSON.stringify(position)}`, logID: 'RG-Info-Operate' });
+      
+      // 4. 依次点击每个位置
+      this.tasklog({ message: `步骤4: 开始点击 ${result.length} 个位置...`, logID: 'RG-Info-Operate' });
+      for (let i = 0; i < result.length; i++) {
+        this.tasklog({ message: `点击第 ${i + 1}/${result.length} 个位置`, logID: 'RG-Info-Operate' });
+        await this.clickCaptchaPosition(position[i]);
+        await this.page.waitForTimeout(utilRandomAround(750, 1000));
+      }
+      
+      // 5. 提交验证码
+      this.tasklog({ message: '步骤5: 提交验证码...', logID: 'RG-Info-Operate' });
+      await this.submitCaptcha();
+      
+      this.tasklog({ message: '========== 验证码处理完成 ==========', logID: 'RG-Info-Operate' });
+    } catch (error) {
+      this.tasklog({ message: `验证码处理失败: ${error.message}`, logID: 'Error-Info' });
+      this.tasklog({ message: `错误堆栈: ${error.stack}`, logID: 'Error-Info' });
+      throw error;
+    }
+  }
+
+  /**
+   * 获取验证码数据
+   * 恢复原有的详细处理逻辑
+   */
+  async getCaptchaData() {
+    try {
+      this.tasklog({ message: '等待验证码数据响应...', logID: 'RG-Info-Operate' });
+      const response = await this.page.waitForResponse(
+        /ait\/ait\/ait\/problem\?.+$/,
+        { timeout: 60000 }
+      );
+      
+      if (response.request().timing().startTime > this.registerTime) {
+        const data = await response.json();
+        const token = '58e9d0ae-8322-4c89-b6c5-cd035a684b02';
+        const { assets, localized_assets } = data;
+        
+        this.tasklog({ message: '成功获取验证码数据', logID: 'RG-Info-Operate' });
+        this.tasklog({ message: `验证码问题: ${localized_assets.target0}`, logID: 'RG-Info-Operate' });
+        this.tasklog({ message: `图片数量: ${JSON.parse(assets.images).length}`, logID: 'RG-Info-Operate' });
+        
+        return {
+          token,
+          queries: JSON.parse(assets.images),
+          question: localized_assets.target0
+        };
+      } else {
+        this.tasklog({ message: '验证码响应时间早于注册时间，忽略', logID: 'Warn-Info' });
+        return null;
+      }
+    } catch (error) {
+      this.tasklog({ message: `获取验证码数据失败: ${error.message}`, logID: 'Error-Info' });
+      throw error;
+    }
+  }
+
+  /**
+   * 调用API解析验证码
+   */
+  async getCaptchaSolution(props) {
+    this.tasklog({ message: '开始调用 captcha.run API 解析验证码...', logID: 'RG-Info-Operate' });
+    this.tasklog({ message: `API Token: ${props.token}`, logID: 'RG-Info-Operate' });
+    
+    const workflow = createPollingFactory({
+      interval: 5000,
+      error: () => {
+        this.tasklog({ message: '解析captcha失败，重试中...', logID: 'Warn-Info' });
+      },
+      complete: () => {
+        this.tasklog({ message: '解析captcha失败次数过多', logID: 'Error-Info' });
+      }
+    });
+    
+    return workflow(async (props) => {
+      this.tasklog({ message: '正在发送请求到 captcha.run...', logID: 'RG-Info-Operate' });
+      
+      const response = await fetch('https://api.captcha.run/v2/tasks', {
+        method: 'POST',
+        headers: {
+     恢复原有的详细处理逻辑
+   */
+  async getCaptchaSolution(props) {
+    this.tasklog({ message: '开始调用 captcha.run API 解析验证码...', logID: 'RG-Info-Operate' });
+    this.tasklog({ message: `API Token: ${props.token}`, logID: 'RG-Info-Operate' });
+    
+    const workflow = createPollingFactory({
+      interval: 5000,
+      error: () => {
+        this.tasklog({ message: '解析captcha失败，重试中...', logID: 'Warn-Info' });
+      },
+      complete: () => {
+        throw new Error('解析captcha失败''RG-Info-Operate' });
+      
+      if (data.result && data.result.type === 'multi' && data.result.objects && data.result.objects.length === 5) {
+        this.tasklog({ message: `解析captcha成功，找到 ${data.result.objects.length} 个目标`, logID: 'RG-Info-Operate' });
+        return data.result.objects;
+      } else {
+        this.tasklog({ message: `API 返回格式不符合预期: ${JSON.stringify(data)}`, logID: 'Warn-Info' });
+        throw new Error('API返回结果格式错误或目标数量不正确');
+      }
+    }, props);
+  }
+
+  /**
+   * 点击验证码指定位置
+   * 完全按照toolbox源码实现
+   */
+  async clickCaptchaPosition(position) {
+    try {
+      this.tasklog({ 
+        message: `准备点击验证码位置: (${position.x}, ${position.y})`, 
+        logID: 'RG-Info-Operate' 
+      });
+      
+      // 先确认canvas存在
+      const canvas = this.page.locator('#captcha-container').locator('canvas').first();
+      const canvasCount = await canvas.count();
+      
+      if (canvasCount === 0) {
+        throw new Error('Canvas元素不存在');
+      }
+      
+      // 检查canvas是否可见
+      const isVisible = await canvas.isVisible();
+      if (!isVisible) {
+        throw new Error('Canvas元素不可见');
+      }
+      
+      console.log(`[验证码] 点击canvas坐标: (${position.x}, ${position.y})`);
+      
+      // 点击canvas（完全按照toolbox源码）
+      await canvas.click({
+        delay: utilFluctuateAround(150),
+        position: { x: position.x, y: position.y }
+      });
+      
+      this.tasklog({ 
+        message: `✅ 已点击位置: (${position.x}, ${position.y})`, 
+        logID: 'RG-Info-Operate' 
+      });
+      
+      return true;
+    } catch (error) {
+      this.tasklog({ 
+        message: `点击失败: ${error.message}`, 
+        logID: 'Error-Info' 
+      });
+      console.error('[验证码] 点击异常:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 提交验证码
+   * 完全按照toolbox源码实现
+   */
+  async submitCaptcha() {
+    try {
+      this.tasklog({ message: '查找验证按钮...', logID: 'RG-Info-Operate' });
+      
+      // 查找验证按钮（toolbox源码用的是 #amzn-btn-verify-internal）
+      const verifyButton = this.page.locator('#amzn-btn-verify-internal').first();
+      
+      // 等待按钮出现
+      await verifyButton.waitFor({ timeout: 10000 });
+      
+      // 确认按钮可见
+      const isVisible = await verifyButton.isVisible();
+      if (!isVisible) {
+        throw new Error('验证按钮不可见');
+      }
+      
+      this.tasklog({ message: '点击验证按钮...', logID: 'RG-Info-Operate' });
+      console.log('[验证码] 点击提交按钮 #amzn-btn-verify-internal');
+      
+      // 点击按钮
+      await verifyButton.click({ delay: utilRandomAround(100, 200) });
+      
+      this.tasklog({ message: '✅ 验证码已提交，等待结果...', logID: 'RG-Info-Operate' });
+      
+      // 等待页面响应（按照toolbox，等待URL变化或networkidle）
+      await this.page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {
+        console.log('[验证码] networkidle超时，继续...');
+      });
+      
+      this.tasklog({ message: '验证码提交完成', logID: 'RG-Info-Operate' });
+      
+    } catch (error) {
+      this.tasklog({ message: `提交验证码失败: ${error.message}`, logID: 'Error-Info' });
+      console.error('[验证码] 提交异常:', error);
+      throw error;
+    }
+  }
+}
+
+module.exports = CaptchaHandler;
