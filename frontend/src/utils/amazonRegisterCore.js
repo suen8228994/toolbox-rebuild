@@ -48,6 +48,9 @@ const PhoneGenerator = require('./phoneGenerator');
 // ⚠️ 导入独立的Captcha处理模块（请勿在此文件中修改Captcha逻辑）
 const CaptchaHandler = require('./captchaHandler');
 
+// 导入Canvas图片验证码处理模块（用于Amazon图片验证）
+const CaptchaCanvasCapture = require('../../CaptchaCanvasCapture');
+
 class AmazonRegisterCore {
   constructor(config) {
     // 从配置中提取所有必要参数
@@ -59,6 +62,9 @@ class AmazonRegisterCore {
     
     // 初始化Captcha处理器（独立模块，避免被其他代码影响）
     this.captchaHandler = null; // 延迟初始化
+    
+    // 初始化Canvas图片验证码处理器
+    this.captchaCanvasCapture = null; // 延迟初始化
     
     // Private state
     this.registerTime = config.registerTime || Date.now();
@@ -1015,6 +1021,19 @@ class AmazonRegisterCore {
     }
     return this.captchaHandler;
   }
+
+  /**
+   * 获取或创建Canvas图片验证码处理器实例
+   * @returns {CaptchaCanvasCapture} Canvas验证码处理器
+   */
+  getCaptchaCanvasCaptureHandler() {
+    if (!this.captchaCanvasCapture) {
+      // yescaptcha clientKey（需要根据实际配置调整）
+      const clientKey = this.config.yescaptchaClientKey || '0336ef0e8b28817fc0a209170829f1c43cefee7481336';
+      this.captchaCanvasCapture = new CaptchaCanvasCapture(clientKey);
+    }
+    return this.captchaCanvasCapture;
+  }
   
   /**
    * 检测是否需要处理Captcha
@@ -1026,10 +1045,109 @@ class AmazonRegisterCore {
 
   /**
    * 处理Captcha验证
-   * 委托给独立的CaptchaHandler模块
+   * 优先使用Canvas图片验证码处理器，降级到原有的CaptchaHandler
    */
   async solveCaptcha() {
-    return this.getCaptchaHandler().solveCaptcha();
+    try {
+      // 检测是否有Canvas图片验证码容器（Amazon的选择式图片验证）
+      const canvasContainerExists = await Promise.race([
+        this.page.locator('#cvf-aamation-container').count().then(c => c > 0),
+        this.page.locator('#captcha-container').count().then(c => c > 0),
+        Promise.resolve(false).then(() => new Promise(resolve => setTimeout(() => resolve(false), 1000)))
+      ]);
+      
+      // 如果检测到Canvas容器，使用CaptchaCanvasCapture处理
+      if (canvasContainerExists) {
+        this.tasklog({ message: '🖼️ 检测到Canvas图片验证码，使用CaptchaCanvasCapture处理', logID: 'RG-Info-Operate' });
+        const success = await this.handleImageCaptchaWithCanvasCapture();
+        if (success) {
+          return;
+        }
+        // 如果CaptchaCanvasCapture失败，降级到原有处理器
+        this.tasklog({ message: '⚠️ CaptchaCanvasCapture处理失败，尝试使用CaptchaHandler...', logID: 'Warn-Info' });
+      }
+      
+      // 使用原有的CaptchaHandler处理其他类型验证码
+      return this.getCaptchaHandler().solveCaptcha();
+      
+    } catch (error) {
+      this.tasklog({ message: `验证码处理异常: ${error.message}，尝试使用CaptchaHandler`, logID: 'Warn-Info' });
+      // 异常时降级到原有处理器
+      return this.getCaptchaHandler().solveCaptcha();
+    }
+  }
+
+  /**
+   * 使用Canvas图片验证码处理器处理Amazon图片验证
+   * 专门针对Amazon的选择式图片验证（3x3网格）
+   * 
+   * @returns {Promise<boolean>} 是否成功完成验证
+   */
+  async handleImageCaptchaWithCanvasCapture() {
+    try {
+      this.tasklog({ message: '🖼️ 检测到图片验证码，使用CaptchaCanvasCapture处理...', logID: 'RG-Info-Operate' });
+      
+      // 1. 获取Canvas验证码处理器
+      const captureHandler = this.getCaptchaCanvasCaptureHandler();
+      
+      // 2. 完整的验证流程：截图 -> 提取提示 -> 识别 -> 点击 -> 提交
+      const result = await captureHandler.solveWithYescaptcha(this.page);
+      
+      if (!result || !result.success) {
+        this.tasklog({ 
+          message: `❌ Canvas验证码处理失败: ${result?.message || '未知错误'}`, 
+          logID: 'Error-Info' 
+        });
+        return false;
+      }
+      
+      this.tasklog({ 
+        message: `✅ Canvas验证码已完成，识别到的目标: ${result.question}`, 
+        logID: 'RG-Info-Operate' 
+      });
+      
+      // 3. 点击识别出的目标位置
+      if (result.solution && result.solution.label) {
+        this.tasklog({ 
+          message: `📍 开始点击识别的目标位置 (${result.solution.label})...`, 
+          logID: 'RG-Info-Operate' 
+        });
+        
+        await captureHandler.clickTargets(this.page, result.solution);
+        
+        this.tasklog({ 
+          message: '✅ 所有目标位置已点击', 
+          logID: 'RG-Info-Operate' 
+        });
+      }
+      
+      // 4. 提交验证
+      this.tasklog({ 
+        message: '🔄 正在提交验证...', 
+        logID: 'RG-Info-Operate' 
+      });
+      
+      await captureHandler.submitVerification(this.page);
+      
+      this.tasklog({ 
+        message: '✅ 图片验证提交完成，等待页面响应...', 
+        logID: 'RG-Info-Operate' 
+      });
+      
+      // 5. 等待页面稳定
+      await this.page.waitForTimeout(2000);
+      
+      return true;
+      
+    } catch (error) {
+      this.tasklog({ 
+        message: `❌ 图片验证码处理异常: ${error.message}`, 
+        logID: 'Error-Info' 
+      });
+      
+      // 验证失败，返回false但不中断流程，让主流程继续
+      return false;
+    }
   }
 
   /**

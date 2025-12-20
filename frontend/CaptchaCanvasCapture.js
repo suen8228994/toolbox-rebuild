@@ -488,8 +488,119 @@ class CaptchaCanvasCapture {
           }
         }
         
+        // 如果原有逻辑检测不到，新增补充检测方法
         if (!capturedBuffer) {
-          throw new Error('未找到有效的验证码 canvas');
+          console.log('[截图] 原有逻辑未获取到图片，尝试补充检测方法...');
+          
+          // 补充检测 1: 等待容器加载并重新检测 canvas
+          try {
+            console.log('[截图-补充1] 尝试等待验证码容器加载...');
+            await page.waitForSelector('#captcha-container, #cvf-aamation-container', { timeout: 5000 }).catch(() => {});
+            await page.waitForTimeout(2000);
+            
+            const containerCanvasCount = await page.locator('#captcha-container canvas, #cvf-aamation-container canvas').count();
+            console.log(`[截图-补充1] 在容器中检测到 ${containerCanvasCount} 个 canvas 元素`);
+            
+            if (containerCanvasCount > 0) {
+              const containerCanvasLocator = page.locator('#captcha-container canvas, #cvf-aamation-container canvas').first();
+              try {
+                capturedBuffer = await containerCanvasLocator.screenshot({ timeout: 10000 });
+                console.log(`[截图-补充1] ✓ 成功从容器内的 canvas 截取图片`);
+              } catch (e) {
+                console.log(`[截图-补充1] 容器内 canvas 截图失败，尝试 toDataURL...`);
+                try {
+                  const dataUrl = await page.evaluate(() => {
+                    const canvas = document.querySelector('#captcha-container canvas') || 
+                                   document.querySelector('#cvf-aamation-container canvas');
+                    if (!canvas) throw new Error('Canvas not found in container');
+                    return canvas.toDataURL('image/png');
+                  });
+                  const base64Data = dataUrl.replace(/^data:image\/png;base64,/, '');
+                  capturedBuffer = Buffer.from(base64Data, 'base64');
+                  console.log(`[截图-补充1] ✓ 通过 toDataURL 成功获取图片`);
+                } catch (evalErr) {
+                  console.log(`[截图-补充1] toDataURL 失败: ${evalErr.message}`);
+                }
+              }
+            }
+          } catch (err) {
+            console.log(`[截图-补充1] 补充检测 1 失败: ${err.message}`);
+          }
+          
+          // 补充检测 2: 等待网络加载后再次尝试
+          if (!capturedBuffer) {
+            try {
+              console.log('[截图-补充2] 尝试等待网络加载并重新检测...');
+              await page.waitForLoadState('networkidle').catch(() => {});
+              await page.waitForTimeout(3000);
+              
+              const retryCanvasCount = await page.locator('canvas').count();
+              console.log(`[截图-补充2] 网络加载后检测到 ${retryCanvasCount} 个 canvas 元素`);
+              
+              if (retryCanvasCount > 0) {
+                const retryCanvasLocator = page.locator('canvas').first();
+                const info = await retryCanvasLocator.evaluate(el => ({
+                  offsetWidth: el.offsetWidth,
+                  offsetHeight: el.offsetHeight
+                }));
+                
+                if (info.offsetWidth > 0 || info.offsetHeight > 0) {
+                  try {
+                    capturedBuffer = await retryCanvasLocator.screenshot({ timeout: 10000 });
+                    console.log(`[截图-补充2] ✓ 成功从 canvas 截取图片`);
+                  } catch (e) {
+                    console.log(`[截图-补充2] 截图失败，尝试 toDataURL...`);
+                    const dataUrl = await page.evaluate(() => {
+                      const canvas = document.querySelector('canvas');
+                      if (!canvas) throw new Error('Canvas not found');
+                      return canvas.toDataURL('image/png');
+                    });
+                    const base64Data = dataUrl.replace(/^data:image\/png;base64,/, '');
+                    capturedBuffer = Buffer.from(base64Data, 'base64');
+                    console.log(`[截图-补充2] ✓ 通过 toDataURL 成功获取图片`);
+                  }
+                }
+              }
+            } catch (err) {
+              console.log(`[截图-补充2] 补充检测 2 失败: ${err.message}`);
+            }
+          }
+          
+          // 补充检测 3: 查看是否有其他可能的 canvas（iframe 内等）
+          if (!capturedBuffer) {
+            try {
+              console.log('[截图-补充3] 尝试查找所有可能的 canvas 元素...');
+              const allCanvasLocators = await page.locator('canvas').all();
+              console.log(`[截图-补充3] 找到 ${allCanvasLocators.length} 个 canvas 元素`);
+              
+              for (let i = 0; i < allCanvasLocators.length; i++) {
+                try {
+                  const locator = allCanvasLocators[i];
+                  const dataUrl = await locator.evaluate(el => {
+                    if (el.offsetWidth > 0 && el.offsetHeight > 0) {
+                      return el.toDataURL('image/png');
+                    }
+                    return null;
+                  });
+                  
+                  if (dataUrl) {
+                    const base64Data = dataUrl.replace(/^data:image\/png;base64,/, '');
+                    capturedBuffer = Buffer.from(base64Data, 'base64');
+                    console.log(`[截图-补充3] ✓ 从第 ${i} 个 canvas 成功获取图片`);
+                    break;
+                  }
+                } catch (e) {
+                  console.log(`[截图-补充3] 第 ${i} 个 canvas 尝试失败`);
+                }
+              }
+            } catch (err) {
+              console.log(`[截图-补充3] 补充检测 3 失败: ${err.message}`);
+            }
+          }
+          
+          if (!capturedBuffer) {
+            throw new Error('未找到有效的验证码 canvas');
+          }
         }
         
         base64Image = capturedBuffer.toString('base64');
