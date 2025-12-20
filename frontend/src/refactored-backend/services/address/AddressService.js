@@ -85,7 +85,7 @@ class AddressService {
       const { lat, lon } = this.#getRandomPointInBoundingBox(postalCode);
       
       const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`,
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=en`,
         {
           headers: {
             'User-Agent': 'ToolBox Address Service',
@@ -101,8 +101,10 @@ class AddressService {
         throw new Error(`API返回数据不完整: ${JSON.stringify(data)}`);
       }
 
+      // 若返回缺少门牌号（house_number），不直接失败，采用随机门牌号回退
       if (!data.address.house_number) {
-        throw new Error(`没有房屋编号 (lat: ${lat.toFixed(4)}, lon: ${lon.toFixed(4)})`);
+        console.warn(`[AddressService] 未返回 house_number，使用随机门牌回退 (lat: ${lat.toFixed(4)}, lon: ${lon.toFixed(4)})`);
+        data.address.house_number = String(Math.floor(1 + Math.random() * 2000));
       }
 
       // OpenStreetMap API 返回的地址字段可能有多种命名方式
@@ -128,9 +130,27 @@ class AddressService {
                    address.county || 
                    'Unknown';
       
-      const stateCode = stateAbbreviations[state];
-      
-      // 如果州代码未找到，抛出错误重新获取
+      let stateCode = stateAbbreviations[state];
+
+      // 尝试从其他字段读取已有的州简称
+      if (!stateCode) {
+        const alt = address.state_code || address['state_code'] || address['ISO3166-2-lvl4'];
+        if (alt) stateCode = String(alt).toUpperCase();
+      }
+
+      // 回退：若仍未找到，则使用邮编查询 zippopotam.us 获取州简称
+      if (!stateCode && postalCode) {
+        try {
+          const zp = await fetch(`https://api.zippopotam.us/us/${postalCode}`);
+          if (zp.ok) {
+            const zpj = await zp.json();
+            const zpState = zpj.places && zpj.places[0] && zpj.places[0]['state abbreviation'];
+            if (zpState) stateCode = zpState;
+          }
+        } catch (e) {}
+      }
+
+      // 如果州代码仍未找到，抛出错误重新获取
       if (!stateCode) {
         throw new Error(`未找到州代码: ${state}，重新获取`);
       }

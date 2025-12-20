@@ -126,6 +126,17 @@ class CaptchaHandler {
       // 5. 提交验证码
       await this.submitCaptcha();
     } catch (error) {
+      // 检查是否是代理/爬虫检测导致的错误
+      if (error.message && (error.message.includes('被检测为爬虫') || error.message.includes('验证码页面'))) {
+        this.tasklog({ message: `⚠️ 检测到网络检测: ${error.message}`, logID: 'Warn-Info' });
+        // 等待一段时间后重新刷新页面，尝试绕过
+        await this.page.waitForTimeout(3000);
+        await this.page.reload({ waitUntil: 'networkidle' });
+        this.tasklog({ message: '已刷新页面，尝试绕过网络检测', logID: 'RG-Info-Operate' });
+        // 不再throw，让流程继续
+        return;
+      }
+      
       this.tasklog({ message: `验证码处理失败: ${error.message}`, logID: 'Error-Info' });
       throw error;
     }
@@ -135,12 +146,13 @@ class CaptchaHandler {
     try {
       this.tasklog({ message: '等待验证码数据响应...', logID: 'RG-Info-Operate' });
       
-      const response = await this.page.waitForResponse(
-        /ait\/ait\/ait\/problem\?.+$/,
-        { timeout: 60000 }
-      );
+      // 【关键】使用精确的正则表达式匹配原始toolbox的验证码API路径
+      // 原始路径格式: /ait/ait/ait/problem?...
+      // 这个正则确保只匹配验证码API的JSON响应，而不是其他静态资源(JS/CSS/HTML)
+      const response = await this.page.waitForResponse(/ait\/ait\/ait\/problem\?.+$/, { timeout: 60000 });
       
       if (response.request().timing().startTime > this.registerTime) {
+        // 直接解析JSON（原始实现的方式）
         const data = await response.json();
         const token = '58e9d0ae-8322-4c89-b6c5-cd035a684b02';
         const { assets, localized_assets } = data;
@@ -158,7 +170,7 @@ class CaptchaHandler {
       }
     } catch (error) {
       this.tasklog({ message: `获取Captcha数据失败: ${error.message}`, logID: 'Error-Info' });
-      throw error; // 抛出错误而不是返回 undefined
+      throw error;
     }
   }
 
@@ -177,7 +189,9 @@ class CaptchaHandler {
         const error = new Error('解析captcha失败，已达最大重试次数');
         this.tasklog({ message: error.message, logID: 'Error-Info' });
         throw error; // 抛出错误而不是只记录日志
-      }
+      },
+      // 当页面关闭或被销毁时停止轮询
+      stop: () => this.page && this.page.isClosed()
     });
     
     return workflow(async (props) => {
@@ -215,23 +229,39 @@ class CaptchaHandler {
 
   async clickCaptchaPosition(position) {
     await this.page.waitForTimeout(utilRandomAround(300, 500));
-    
-    return this.page
-      .locator('#captcha-container')
-      .locator('canvas')
-      .first()
-      .click({
-        delay: utilFluctuateAround(150),
-        position
-      });
+
+    const canvasLocator = this.page.locator('#captcha-container').locator('canvas').first();
+    // 等待 canvas 出现并可见
+    await canvasLocator.waitFor({ timeout: 10000 }).catch(() => {});
+    const isVisible = await canvasLocator.isVisible().catch(() => false);
+    if (!isVisible) {
+      this.tasklog({ message: 'Canvas 未可见或不存在', logID: 'Error-Info' });
+      throw new Error('Canvas not visible');
+    }
+
+    await canvasLocator.click({
+      delay: utilFluctuateAround(150),
+      position
+    });
+
+    this.tasklog({ message: `已点击验证码位置: (${position.x}, ${position.y})`, logID: 'RG-Info-Operate' });
+    return true;
   }
 
   async submitCaptcha() {
     this.tasklog({ message: '提交验证码', logID: 'RG-Info-Operate' });
-    
-    const verifyButton = this.page.locator('#amzn-btn-verify-internal');
+    const verifyButton = this.page.locator('#amzn-btn-verify-internal').first();
+    // 等待按钮出现并可见
+    await verifyButton.waitFor({ timeout: 10000 }).catch(() => {});
+    const isVisible = await verifyButton.isVisible().catch(() => false);
+    if (!isVisible) {
+      this.tasklog({ message: '提交按钮不可见，无法提交验证码', logID: 'Warn-Info' });
+      throw new Error('Verify button not visible');
+    }
+
     await verifyButton.click({ delay: utilFluctuateAround(150) });
     await this.page.waitForLoadState('networkidle').catch(() => {});
+    this.tasklog({ message: '已提交验证码', logID: 'RG-Info-Operate' });
   }
 }
 

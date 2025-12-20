@@ -44,10 +44,18 @@ class AddressBindingOperations {
     
     const { postCode } = this.addressInfo;
     
-    // Generate address details
-    const { data: { randomPhone, addressLine1, city, countryCode, postalCode } } = postCode
+    // Generate address details (normalize different addressService return shapes)
+    const genRes = postCode
       ? await this.addressService.generatePostalCodeAddress(postCode)
       : await this.addressService.generateRandomAddress();
+
+    const genData = (genRes && genRes.data) ? genRes.data : genRes;
+
+    const phone = genData.phoneNumber || genData.randomPhone || genData.phone || null;
+    const addressLine1 = genData.addressLine1 || genData.address1 || '';
+    const city = genData.city || genData.placeName || '';
+    const stateCode = genData.stateCode || genData.countryCode || genData.stateAbbr || genData.state || '';
+    const postalCode = genData.postalCode || genData.zip || genData.postal || '';
     
     // Navigate to address management
     await this.goToHomepage();
@@ -58,7 +66,7 @@ class AddressBindingOperations {
     const enterAddressFirst = Math.random() < 0.5;
     
     if (enterAddressFirst) {
-      await this.fillPhoneNumber(randomPhone);
+      await this.fillPhoneNumber(phone);
       await this.fillAddressLine1(addressLine1);
     } else {
       await this.fillAddressLine1(addressLine1);
@@ -70,13 +78,13 @@ class AddressBindingOperations {
     // Fill remaining fields if no suggestion was selected
     if (!this.suggestedAddress) {
       await this.fillCity(city);
-      await this.selectState(countryCode);
+      await this.selectState(stateCode);
       await this.fillPostalCode(postalCode);
     }
     
     // Fill phone number if not filled yet
     if (!enterAddressFirst) {
-      await this.fillPhoneNumber(randomPhone);
+      await this.fillPhoneNumber(phone);
     }
     
     await this.submitAddress();

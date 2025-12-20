@@ -66,4 +66,9 @@ class EventDispatcher {
 
 const eventEmitter = EventDispatcher.getInstance();
 
+// Backwards-compatible alias: some modules destructure { nodeEmitter }
+// from this module. Provide `nodeEmitter` property that references
+// the same dispatcher instance so both import styles work.
+eventEmitter.nodeEmitter = eventEmitter;
+
 module.exports = eventEmitter;

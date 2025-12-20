@@ -48,8 +48,16 @@ class AddressOperations extends BaseOperations {
    */
   async fillCity(city) {
     this.tasklog({ message: '填写城市', logID: 'RG-Info-Operate' });
+    const locator = this.page.locator('#address-ui-widgets-enterAddressCity');
+    const existing = await locator.inputValue().catch(() => '');
+
+    if (existing && existing.trim().length > 0) {
+      this.tasklog({ message: '城市输入框已有值，保留网站自动填充', logID: 'RG-Info-Operate' });
+      return;
+    }
+
     await this.fillInput(
-      this.page.locator('#address-ui-widgets-enterAddressCity'),
+      locator,
       city,
       { title: '桌面端，主站，填写城市' }
     );
@@ -71,8 +79,16 @@ class AddressOperations extends BaseOperations {
    */
   async fillPostalCode(postalCode) {
     this.tasklog({ message: '填写邮编', logID: 'RG-Info-Operate' });
+    const locator = this.page.locator('#address-ui-widgets-enterAddressPostalCode');
+    const existing = await locator.inputValue().catch(() => '');
+
+    if (existing && existing.trim().length > 0) {
+      this.tasklog({ message: '邮编输入框已有值，保留网站自动填充', logID: 'RG-Info-Operate' });
+      return;
+    }
+
     await this.fillInput(
-      this.page.locator('#address-ui-widgets-enterAddressPostalCode'),
+      locator,
       postalCode,
       { title: '桌面端，主站，填写邮编' }
     );
@@ -131,12 +147,13 @@ class AddressOperations extends BaseOperations {
     
     const addressService = new AddressService();
     const result = await addressService.generateRandomAddress(postalCode);
-    
-    if (!result.success) {
-      throw new Error(`地址生成失败: ${result.error}`);
+
+    // 地址服务可能返回 { data: {...} } 或直接返回数据对象
+    const addressData = (result && result.data) ? result.data : result;
+
+    if (!addressData) {
+      throw new Error(`地址生成失败: 返回数据为空`);
     }
-    
-    const addressData = result.data;
     
     this.tasklog({ 
       message: `已生成真实地址: ${addressData.addressLine1}, ${addressData.city}, ${addressData.stateCode} ${addressData.postalCode}`, 

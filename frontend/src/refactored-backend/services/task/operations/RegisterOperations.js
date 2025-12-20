@@ -606,6 +606,12 @@ class RegisterOperations {
     const otp = await this.getStableTOTP();
     await this.fill2FACode(otp.code);
     await this.submit2FA();
+    // 处理 2FA 完成后的提示页面（chimera-mfa-how-to），非阻塞
+    try {
+      await this.handlePost2FASplash();
+    } catch (err) {
+      this._tp_.tasklog({ message: `处理2FA提示页面失败: ${err.message}`, logID: 'Warn-Info' });
+    }
     
     this._tp_.tasklog({
       message: '绑定2FA成功',
@@ -637,6 +643,12 @@ class RegisterOperations {
     
     this.registerTime = Date.now();
     await this.submit2FA();
+    // 处理 2FA 完成后的提示页面（chimera-mfa-how-to），非阻塞
+    try {
+      await this.handlePost2FASplash();
+    } catch (err) {
+      this._tp_.tasklog({ message: `处理2FA提示页面失败: ${err.message}`, logID: 'Warn-Info' });
+    }
     
     const code = await this.getEmailVerificationCode();
     await this.fill2FAEmailCode(code);
@@ -681,6 +693,43 @@ class RegisterOperations {
     const code = await this.getEmailVerificationCode();
     await this.fillEmailCode(code);
     await this.submitEmailVerification();
+  }
+
+  /**
+   * 处理 2FA 完成后的提示页面（例如 id="chimera-mfa-how-to"），安全且非侵入。
+   * 会尝试点击该区域内的 `#enable-mfa-form-submit`（若存在且可见）。
+   */
+  async handlePost2FASplash() {
+    try {
+      const page = this._tp_.ctxPage;
+      const splash = page.locator('#chimera-mfa-how-to');
+      const exists = await splash.count().then(c => c > 0).catch(() => false);
+      if (!exists) return;
+
+      this._tp_.tasklog({ message: '检测到 2FA 提示页面 chimera-mfa-how-to', logID: 'RG-Info-Operate' });
+      // 不再点击页面内的 "enable-mfa-form-submit" 按钮。
+      // 改为返回首页，然后由地址绑定逻辑在首页继续执行（如果配置要求绑定地址）。
+      try {
+        this._tp_.tasklog({ message: '跳转到首页以继续后续流程（不点击 enable-mfa）', logID: 'RG-Info-Operate' });
+        await page.goto('https://www.amazon.com', { timeout: 15000 }).catch(() => {});
+
+        // 如果任务配置要求绑定地址，则发出事件，绑定模块可订阅并执行绑定流程
+        try {
+          const { nodeEmitter } = require('../../../utils/eventEmitter');
+          if (this._tp_.taskRegisterConfig && this._tp_.taskRegisterConfig.bindAddress) {
+            nodeEmitter.emit('REQUEST_BIND_ADDRESS', { page, account: this.accountInfo });
+            this._tp_.tasklog({ message: '已发布 REQUEST_BIND_ADDRESS 事件，等待地址绑定模块处理', logID: 'RG-Info-Operate' });
+          }
+        } catch (e) {
+          // ignore emitter errors
+        }
+      } catch (e) {
+        // ignore navigation errors
+      }
+    } catch (err) {
+      this._tp_.tasklog({ message: `handlePost2FASplash 错误: ${err.message}`, logID: 'Warn-Info' });
+      // 不抛出以免中断主流程
+    }
   }
 
   /**

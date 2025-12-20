@@ -30,6 +30,29 @@ class TaskMainService {
     this._tp_ = taskPublicService;
     this.emailService = emailService;
     this.addressService = addressService;
+
+    // Listen for external requests to bind address and run binding workflow
+    try {
+      const { nodeEmitter } = require('../../utils/eventEmitter');
+      nodeEmitter.on('REQUEST_BIND_ADDRESS', async (payload) => {
+        try {
+          const { page, account } = payload || {};
+          this._tp_.tasklog({ message: '收到 REQUEST_BIND_ADDRESS 事件，准备绑定地址', logID: 'RG-Info-Operate' });
+          if (page) {
+            // ensure task public service uses this page
+            this._tp_.taskInitPage(page);
+          }
+
+          const addressOps = new (require('./operations/AddressBindingOperations').AddressBindingOperations)(this._tp_, this.addressService);
+          await addressOps.execute();
+          this._tp_.tasklog({ message: 'REQUEST_BIND_ADDRESS: 地址绑定完成', logID: 'RG-Bind-Address' });
+        } catch (err) {
+          this._tp_.tasklog({ message: `REQUEST_BIND_ADDRESS 处理失败: ${err.message}`, logID: 'Warn-Info' });
+        }
+      });
+    } catch (e) {
+      // ignore if emitter not available
+    }
   }
 
   /**

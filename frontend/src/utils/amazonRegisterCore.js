@@ -742,19 +742,19 @@ class AmazonRegisterCore {
           console.log('[注册] ⚠️ 检测到验证问题，判断是否需要切换代理...');
           
           // 检查是否是强制手机验证（需要切换代理）
-          if (await this.detectForcedPhoneVerification()) {
-            console.log('[注册] ⚠️ 确认为强制手机验证，尝试切换代理重试...');
-            
-            const switchResult = await this.switchProxyAndRetry();
-            if (switchResult.success) {
-              console.log('[注册] ✓ 代理切换成功，重新开始注册流程...');
-              this.isRetryingRegistration = true;
-              return await this.execute(); // 递归重新执行整个注册流程
-            } else {
-              console.error('[注册] ❌ 代理切换失败，标记为失败');
-              throw new Error('强制手机验证无法绕过：' + switchResult.error);
-            }
-          } else {
+          // 禁用自动代理切换 - 每次都创建额外环境
+          // if (await this.detectForcedPhoneVerification()) {
+          //   console.log('[注册] ⚠️ 确认为强制手机验证，尝试切换代理重试...');
+          //   const switchResult = await this.switchProxyAndRetry();
+          //   if (switchResult.success) {
+          //     console.log('[注册] ✓ 代理切换成功，重新开始注册流程...');
+          //     this.isRetryingRegistration = true;
+          //     return await this.execute();
+          //   } else {
+          //     console.error('[注册] ❌ 代理切换失败，标记为失败');
+          //     throw new Error('强制手机验证无法绕过：' + switchResult.error);
+          //   }
+          // } else {
             // 普通验证问题，尝试重试
             console.log('[注册] 尝试重试验证流程...');
             await this.retryRegistration();
@@ -778,7 +778,7 @@ class AmazonRegisterCore {
                 this.createError({ message: '注册失败', logID: 'Error-Info' });
                 break;
             }
-          }
+          // }
           break;
       }
       
@@ -806,20 +806,20 @@ class AmazonRegisterCore {
       
     } catch (error) {
       // 如果检测到需要切换代理的情况
-      if (error.message === 'NEED_PROXY_SWITCH' && !this.isRetryingRegistration) {
-        console.log('[注册] 🔄 检测到需要切换代理，尝试切换代理并重新注册...');
-        
-        const switchResult = await this.switchProxyAndRetry();
-        if (switchResult.success) {
-          console.log('[注册] ✓ 代理切换成功，重新开始注册流程...');
-          this.isRetryingRegistration = true;
-          this.registerTime = Date.now();
-          return await this.execute();
-        } else {
-          console.error('[注册] ❌ 代理切换失败:', switchResult.error);
-          throw new Error('代理切换失败：' + switchResult.error);
-        }
-      }
+      // 禁用自动代理切换 - 每次都创建额外环境
+      // if (error.message === 'NEED_PROXY_SWITCH' && !this.isRetryingRegistration) {
+      //   console.log('[注册] 🔄 检测到需要切换代理，尝试切换代理并重新注册...');
+      //   const switchResult = await this.switchProxyAndRetry();
+      //   if (switchResult.success) {
+      //     console.log('[注册] ✓ 代理切换成功，重新开始注册流程...');
+      //     this.isRetryingRegistration = true;
+      //     this.registerTime = Date.now();
+      //     return await this.execute();
+      //   } else {
+      //     console.error('[注册] ❌ 代理切换失败:', switchResult.error);
+      //     throw new Error('代理切换失败：' + switchResult.error);
+      //   }
+      // }
       
       // 如果是登录页面检测触发的重新注册请求
       if (error.message === 'RETRY_REGISTRATION' && !this.isRetryingRegistration) {
@@ -1412,31 +1412,18 @@ class AmazonRegisterCore {
       return;
     }
     
-    // 确认页面出现了，处理复选框和提交按钮
-    this.tasklog({ message: '检测到两步验证确认页面', logID: 'RG-Info-Operate' });
-    
-    // 检查是否有"Don't require OTP on this browser"复选框
-    const trustDeviceCheckbox = this.page.locator('input[name="trustThisDevice"]');
-    const isCheckboxVisible = await trustDeviceCheckbox.isVisible().catch(() => false);
-    
-    if (isCheckboxVisible) {
-      // 如果复选框存在且未勾选，则勾选它
-      const isChecked = await trustDeviceCheckbox.isChecked();
-      if (!isChecked) {
-        await trustDeviceCheckbox.check();
-        await this.page.waitForTimeout(utilRandomAround(500, 1000));
-      }
-    }
+    // 确认页面出现了，直接点击提交按钮进入主页
+    this.tasklog({ message: '检测到两步验证确认页面，直接提交进入主页', logID: 'RG-Info-Operate' });
     
     // 滚动到按钮位置
     await enableMfaFormSubmit.evaluate(el => {
       el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
     
-    // 点击确认按钮
-    this.tasklog({ message: '确认开启两步验证', logID: 'RG-Info-Operate' });
+    // 点击确认按钮进入主页
+    this.tasklog({ message: '点击确认按钮进入主页', logID: 'RG-Info-Operate' });
     return this.clickElement(enableMfaFormSubmit, {
-      title: '桌面端，主站，确认开启两步验证',
+      title: '两步验证确认页面，点击按钮进入主页',
       waitForURL: true
     });
   }

@@ -544,7 +544,26 @@ contextBridge.exposeInMainWorld('amazonBrowserAPI', {
   },
   executeRegisterScript: async (config) => {
     console.log('amazonBrowserAPI.executeRegisterScript called with config:', config);
-    return await ipcRenderer.invoke('amazon:executeRegisterScript', config);
+    try {
+      const invokePromise = ipcRenderer.invoke('amazon:executeRegisterScript', config);
+
+      // 可配置超时时间（ms），用于调试主进程长时间无响应的问题
+      const timeoutMs = (config && config.debugInvokeTimeoutMs) ? config.debugInvokeTimeoutMs : 300000; // 默认 5 分钟
+
+      const timeoutPromise = new Promise((_, reject) => {
+        const id = setTimeout(() => {
+          console.warn(`amazonBrowserAPI.executeRegisterScript: invoke timeout after ${timeoutMs}ms`);
+          reject(new Error('amazon:executeRegisterScript invoke timeout'));
+        }, timeoutMs);
+        // 清理如果 invoke 已完成
+        invokePromise.then(() => clearTimeout(id)).catch(() => clearTimeout(id));
+      });
+
+      return await Promise.race([invokePromise, timeoutPromise]);
+    } catch (err) {
+      console.error('amazonBrowserAPI.executeRegisterScript error:', err && err.message ? err.message : err);
+      throw err;
+    }
   },
   deleteContainer: async (containerCode) => {
     console.log('amazonBrowserAPI.deleteContainer called with containerCode:', containerCode);

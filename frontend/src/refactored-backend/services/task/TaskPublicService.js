@@ -78,6 +78,51 @@ class TaskPublicService {
    */
   initPage(page) {
     this.#page = page;
+
+    // 在每次页面加载或导航后检查是否出现登录提示页（auth prompt）
+    const detect = async () => {
+      try {
+        const p = this.#page;
+        if (!p) return;
+
+        const exists = await p.locator('form[name="signIn"], #authportal-main-section, #authportal-center-section').count().then(c => c > 0).catch(() => false);
+        if (exists) {
+          this.logTask({ message: '检测到 Amazon 登录提示页', logID: 'RG-Info-Operate' });
+          // 发布事件，供上层操作决定如何处理（是否自动填写密码并提交）
+          eventEmitter.emit('AUTH_PROMPT_DETECTED', { page: p });
+        }
+
+        // Detect account-fixup phone collection page and try to click the "Not now" skip link
+        const fixupExists = await p.locator('#ap-account-fixup-phone-skip-link, form#auth-account-fixup-phone-form').count().then(c => c > 0).catch(() => false);
+        if (fixupExists && !p.__accountFixupSkipped) {
+          try {
+            this.logTask({ message: '检测到 Account Fixup (phone) 页面，尝试点击跳过', logID: 'RG-Info-Operate' });
+            const skip = p.locator('#ap-account-fixup-phone-skip-link');
+            if (await skip.count()) {
+              await this.#createMouseEvent(skip);
+              // mark as handled on this page to avoid repeated clicks
+              try { p.__accountFixupSkipped = true; } catch (e) {}
+              this.logTask({ message: '已尝试点击跳过绑定手机号', logID: 'RG-Info-Operate' });
+            }
+          } catch (e) {
+            // ignore to avoid blocking main flows
+          }
+        }
+      } catch (err) {
+        // 不抛出错误，避免影响主流程
+      }
+    };
+
+    // 触发一次以应对已经加载的页面
+    detect();
+
+    // 监听页面级加载与导航事件
+    try {
+      page.on('load', detect);
+      page.on('framenavigated', detect);
+    } catch (e) {
+      // ignore if not supported in some environments
+    }
   }
 
   /**
