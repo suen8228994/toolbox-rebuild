@@ -766,7 +766,59 @@
       "registerTime": 1766319792790,
       "updateTime": 1766319792790,
       "notes": "解析captcha失败，已达最大重试次数"
+    },
+    {
+      "id": 74,
+      "email": "OnnieIttel1422@hotmail.com",
+      "password": "qcaZknR436193",
+      "name": "OnnieIttel1422",
+      "otpSecret": "",
+      "registerSuccess": 0,
+      "otpSuccess": 0,
+      "addressSuccess": 0,
+      "registerTime": 1766321195816,
+      "updateTime": 1766321195816,
+      "notes": "超时未收到验证码邮件 (尝试了24次)"
+    },
+    {
+      "id": 75,
+      "email": "OnnieIttel1422@hotmail.com",
+      "password": "qcaZknR436193",
+      "name": "OnnieIttel1422",
+      "otpSecret": "EQYKLN6XZHSKM7P3HFDTVLRGRATMW4MCEFUY6DUAT4OJVIHEF65Q",
+      "registerSuccess": 1,
+      "otpSuccess": 1,
+      "addressSuccess": 1,
+      "registerTime": 1766321675263,
+      "updateTime": 1766321675263,
+      "notes": ""
+    },
+    {
+      "id": 76,
+      "email": "ImothyAngworth7306@hotmail.com",
+      "password": "lqoBagF523693",
+      "name": "ImothyAngworth7306",
+      "otpSecret": "",
+      "registerSuccess": 0,
+      "otpSuccess": 0,
+      "addressSuccess": 0,
+      "registerTime": 1766322964038,
+      "updateTime": 1766322964038,
+      "notes": "超时未收到验证码邮件 (尝试了24次)"
+    },
+    {
+      "id": 77,
+      "email": "ImothyAngworth7306@hotmail.com",
+      "password": "lqoBagF523693",
+      "name": "ImothyAngworth7306",
+      "otpSecret": "",
+      "registerSuccess": 0,
+      "otpSuccess": 0,
+      "addressSuccess": 0,
+      "registerTime": 1766323298391,
+      "updateTime": 1766323298391,
+      "notes": "page.goto: net::ERR_CONNECTION_CLOSED at https://www.amazon.com/\nCall log:\n\u001b[2m  - navigating to \"https://www.amazon.com/\", waiting until \"domcontentloaded\"\u001b[22m\n"
     }
   ],
-  "nextId": 74
+  "nextId": 78
 }

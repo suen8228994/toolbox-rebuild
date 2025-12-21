@@ -548,7 +548,7 @@ contextBridge.exposeInMainWorld('amazonBrowserAPI', {
       const invokePromise = ipcRenderer.invoke('amazon:executeRegisterScript', config);
 
       // 可配置超时时间（ms），用于调试主进程长时间无响应的问题
-      const timeoutMs = (config && config.debugInvokeTimeoutMs) ? config.debugInvokeTimeoutMs : 300000; // 默认 5 分钟
+      const timeoutMs = (config && config.debugInvokeTimeoutMs) ? config.debugInvokeTimeoutMs : 600000; // 默认 10 分钟
 
       const timeoutPromise = new Promise((_, reject) => {
         const id = setTimeout(() => {

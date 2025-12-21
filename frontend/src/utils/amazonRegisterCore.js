@@ -835,6 +835,9 @@ class AmazonRegisterCore {
         await this.solveCaptcha();
         this.tasklog({ message: '人机验证完成', logID: 'RG-Info-Operate' });
         
+        // 异步监控验证码是否真正完成（后台运行，不阻塞主流程）
+        await this.monitorCaptchaCompletion();
+        
         // ⏳ 等待页面跳转回注册界面
         await this.page.waitForTimeout(utilRandomAround(3000, 5000));
       } else {
@@ -871,6 +874,10 @@ class AmazonRegisterCore {
         this.tasklog({ message: '邮箱验证后需要人机验证', logID: 'Warn-Info' });
         await this.solveCaptcha();
         this.tasklog({ message: '人机验证完成', logID: 'RG-Info-Operate' });
+        
+        // 异步监控验证码是否真正完成（后台运行，不阻塞主流程）
+        await this.monitorCaptchaCompletion();
+        
         // 验证完成后再次等待
         await this.page.waitForTimeout(utilRandomAround(2000, 3000));
       }
@@ -1535,6 +1542,62 @@ class AmazonRegisterCore {
    */
   async checkCaptcha() {
     return this.getCaptchaHandler().checkCaptcha();
+  }
+
+  /**
+   * 异步监控验证码是否真正完成
+   * 提交验证码后，异步检测1分钟内是否还在验证界面
+   * 如果1分钟后仍然在验证界面，说明验证失败，抛出异常
+   */
+  async monitorCaptchaCompletion() {
+    try {
+      console.log('[验证码监控] 开始异步监控验证码是否真正完成...');
+      
+      // 异步执行监控，不阻塞主流程
+      setTimeout(async () => {
+        try {
+          // 监控时间：1分钟
+          const monitorDurationMs = 60000;
+          const checkIntervalMs = 5000; // 每5秒检查一次
+          const startTime = Date.now();
+          
+          while (Date.now() - startTime < monitorDurationMs) {
+            // 检查是否还在Captcha界面
+            const stillInCaptcha = await this.checkCaptcha();
+            
+            if (!stillInCaptcha) {
+              console.log('[验证码监控] ✅ 验证码已成功完成，页面已离开验证界面');
+              return;
+            }
+            
+            // 继续等待
+            await this.page.waitForTimeout(checkIntervalMs);
+          }
+          
+          // 如果1分钟后仍在验证界面，说明验证失败
+          console.error('[验证码监控] ❌ 监控超时：1分钟后仍在验证界面，说明验证失败');
+          this.tasklog({ 
+            message: '验证码监控失败：提交后1分钟仍在验证界面，验证未通过', 
+            logID: 'Error-Info' 
+          });
+          
+          // 抛出异常让主流程捕获，走失败流程
+          throw new Error('Captcha verification failed: Still in verification page after 60 seconds');
+          
+        } catch (error) {
+          console.error('[验证码监控] 监控异常:', error.message);
+          this.tasklog({ 
+            message: `验证码监控异常: ${error.message}`, 
+            logID: 'Error-Info' 
+          });
+          // 重新抛出异常
+          throw error;
+        }
+      }, 0); // 立即开始异步监控，不阻塞当前流程
+      
+    } catch (error) {
+      console.error('[验证码监控] 设置监控失败:', error.message);
+    }
   }
 
   /**
