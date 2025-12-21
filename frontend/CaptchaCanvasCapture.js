@@ -749,12 +749,18 @@ class CaptchaCanvasCapture {
         console.log(`[点击] 目标位置 ${index} (行${row}, 列${col}): 点击坐标 (${clickX.toFixed(0)}, ${clickY.toFixed(0)})`);
         
         try {
+          // 随机延迟后执行点击（模拟人类行为）
+          const delay = Math.floor(Math.random() * 1500) + 800; // 800-2300ms
+          console.log(`[点击] ⏳ 等待 ${delay}ms 后点击...`);
+          await page.waitForTimeout(delay);
+          
           // 执行点击
           await page.mouse.click(clickX, clickY);
           console.log(`[点击] ✓ 成功点击位置 ${index}`);
           
-          // 点击之间稍作延迟，避免太快
-          await page.waitForTimeout(300);
+          // 点击之间随机延迟，避免太快
+          const nextDelay = Math.floor(Math.random() * 1000) + 500; // 500-1500ms
+          await page.waitForTimeout(nextDelay);
         } catch (err) {
           console.log(`[点击] ✗ 点击位置 ${index} 失败: ${err.message}`);
         }
@@ -789,9 +795,10 @@ class CaptchaCanvasCapture {
     try {
       console.log('\n========== 点击提交按钮 ==========');
       
-      // 等待1秒
-      console.log('[提交] 等待 1 秒...');
-      await page.waitForTimeout(1000);
+      // 随机延迟（模拟人类行为）
+      const initialDelay = Math.floor(Math.random() * 1000) + 800; // 800-1800ms
+      console.log(`[提交] ⏳ 等待 ${initialDelay}ms 后点击提交按钮...`);
+      await page.waitForTimeout(initialDelay);
       
       // 查找并点击提交按钮
       const submitButton = page.locator('button#amzn-btn-verify-internal');
@@ -807,9 +814,10 @@ class CaptchaCanvasCapture {
       await submitButton.click();
       console.log('[提交] ✓ 已点击提交按钮');
       
-      // 再等1秒让页面处理提交
-      console.log('[提交] 等待提交处理中...');
-      await page.waitForTimeout(1000);
+      // 随机延迟让页面处理提交
+      const processDelay = Math.floor(Math.random() * 1000) + 800; // 800-1800ms
+      console.log(`[提交] ⏳ 等待 ${processDelay}ms 让页面处理提交...`);
+      await page.waitForTimeout(processDelay);
       
       return {
         success: true,

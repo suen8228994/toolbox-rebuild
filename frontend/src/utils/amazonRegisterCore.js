@@ -78,6 +78,8 @@ class AmazonRegisterCore {
     this.proxyPassword = config.proxyPassword || null;
     this.proxyPool = config.proxyPool || []; // 代理池
     this.currentProxyIndex = config.proxyIndex || 0;
+    this.proxyCountry = config.proxyCountry || 'US'; // 代理国家，支持：US, UK, CA, FR, DE, JP 等
+    this.autoDeleteOnFailure = config.autoDeleteOnFailure || false; // 失败时自动删除环境（开关控制）
     
     // 重试配置
     this.maxRetries = config.maxRetries || 3; // 单步骤最大重试次数
@@ -213,6 +215,132 @@ class AmazonRegisterCore {
   }
 
   /**
+   * 检测Two-Step Verification设置说明页面
+   * URL: /a/settings/approval/setup/howto
+   * 这是在账户设置中进入2FA设置流程前的说明页面
+   * 需要点击"Got it. Turn on Two-Step Verification"按钮继续
+   */
+  async detectTSVSetupHowtoPage() {
+    try {
+      const url = this.page.url();
+      
+      // 1. 首先检查URL
+      if (!url.includes('/a/settings/approval/setup/howto')) {
+        console.log('[TSV设置检测] URL不匹配:', url);
+        return false;
+      }
+      
+      console.log('[TSV设置检测] ✓ 检测到URL匹配：/a/settings/approval/setup/howto');
+      
+      // 2. 检测关键文本内容
+      const pageText = await this.page.locator('body').textContent().catch(() => '');
+      console.log('[TSV设置检测] 页面文本长度:', pageText.length);
+      
+      const markers = [
+        'Legacy device Sign-In method',
+        'Suppress OTP challenge during Sign-In',
+        'Got it. Turn on Two-Step Verification'
+      ];
+      
+      let foundCount = 0;
+      for (const marker of markers) {
+        if (pageText.includes(marker)) {
+          console.log(`[TSV设置检测] ✓ 找到关键文本: "${marker}"`);
+          foundCount++;
+        } else {
+          console.log(`[TSV设置检测] ✗ 未找到关键文本: "${marker}"`);
+        }
+      }
+      
+      // 3. 检测"Got it"按钮或表单
+      let hasButton = false;
+      try {
+        // 检查span按钮
+        const spanCount = await this.page.locator('span.a-button:has-text("Got it")').count();
+        if (spanCount > 0) {
+          hasButton = true;
+          console.log(`[TSV设置检测] ✓ 找到button span (count: ${spanCount})`);
+        }
+      } catch (e) {
+        console.log(`[TSV设置检测] 检查span按钮出错:`, e.message);
+      }
+      
+      try {
+        // 检查form
+        if (!hasButton) {
+          const formCount = await this.page.locator('#enable-mfa-form').count();
+          if (formCount > 0) {
+            hasButton = true;
+            console.log(`[TSV设置检测] ✓ 找到enable-mfa-form (count: ${formCount})`);
+          } else {
+            console.log(`[TSV设置检测] ✗ 未找到enable-mfa-form`);
+          }
+        }
+      } catch (e) {
+        console.log(`[TSV设置检测] 检查form出错:`, e.message);
+      }
+      
+      console.log('[TSV设置检测] 检测结果 - 关键文本数:', foundCount, '/ 3, 有按钮:', hasButton);
+      
+      // 只要有URL匹配 + 至少有按钮，就认为是TSV页面
+      // 这样更宽松，避免由于文本内容变化导致的检测失败
+      if (hasButton) {
+        console.log('[TSV设置检测] ✅ 确认是Two-Step Verification设置说明页面');
+        return true;
+      }
+      
+      console.log('[TSV设置检测] ❌ 页面不匹配Two-Step Verification设置说明');
+      return false;
+      
+    } catch (error) {
+      console.log('[TSV设置检测] ❌ 检测出错:', error.message);
+      return false;
+    }
+  }
+
+  /**
+   * 处理Two-Step Verification设置说明页面
+   * 检测到此页面后，直接导航到亚马逊主页
+   */
+  async handleTSVSetupHowtoPage() {
+    try {
+      console.log('[TSV设置处理] 检测到Two-Step Verification设置说明页面，直接进入亚马逊主页...');
+      
+      this.tasklog({ 
+        message: '检测到TSV设置页面，跳过该页面，直接进入亚马逊主页', 
+        logID: 'RG-Info-Operate' 
+      });
+      
+      // 直接导航到亚马逊首页
+      await this.page.goto('https://www.amazon.com/', { 
+        waitUntil: 'domcontentloaded',
+        timeout: 30000 
+      }).catch(async (error) => {
+        console.log('[TSV设置处理] ⚠️ 首页加载失败，尝试备用主页');
+        await this.page.goto('https://www.amazon.com/gp/homepage.html', { 
+          waitUntil: 'domcontentloaded',
+          timeout: 30000 
+        }).catch(async (e) => {
+          console.log('[TSV设置处理] ⚠️ 备用主页也失败');
+        });
+      });
+      
+      await this.page.waitForTimeout(utilRandomAround(1500, 2000));
+      console.log('[TSV设置处理] ✅ 成功进入亚马逊主页');
+      
+      return true;
+      
+    } catch (error) {
+      console.error('[TSV设置处理] 处理失败:', error.message);
+      this.tasklog({ 
+        message: `处理Two-Step Verification设置页面失败: ${error.message}`, 
+        logID: 'Error-Info' 
+      });
+      throw error;
+    }
+  }
+
+  /**
    * 智能检测当前页面状态
    * 返回页面类型，用于决定下一步操作
    */
@@ -238,6 +366,13 @@ class AmazonRegisterCore {
           console.log('[检测] 📍 当前页面: 邮箱验证码');
           return 'email-verification';
         }
+      }
+      
+      // 【优先级高】检测Two-Step Verification设置说明页面（/a/settings/approval/setup/howto）
+      // 这个页面在账户设置中，需要点击"Got it"按钮继续
+      if (await this.detectTSVSetupHowtoPage()) {
+        console.log('[检测] 📍 当前页面: Two-Step Verification设置说明页');
+        return 'tsv-setup-howto';
       }
       
       // 1. 检测登录页面（"Sell with an existing account"）
@@ -339,11 +474,11 @@ class AmazonRegisterCore {
       
       // 2. 代理池耗尽，动态生成
       if (this.proxyPrefix && this.proxyPassword) {
-        console.log('[代理] 代理池已耗尽，开始动态生成新代理...');
+        console.log(`[代理] 代理池已耗尽，开始动态生成新代理（国家: ${this.proxyCountry}）...`);
         
         const proxyGenerator = require('./proxyGenerator');
         const newProxies = proxyGenerator.generateProxies({
-          country: 'US',
+          country: this.proxyCountry, // 使用配置的国家而不是硬编码的 US
           quantity: 1,
           prefix: this.proxyPrefix,
           password: this.proxyPassword
@@ -405,9 +540,18 @@ class AmazonRegisterCore {
       console.log(`[代理切换] 删除旧容器: ${oldContainerCode}`);
       try {
         await hubstudio.deleteContainer(oldContainerCode);
-        console.log('[代理切换] ✓ 旧容器删除成功');
+        console.log('[代理切换] ✓ 旧容器删除请求已发送');
+        
+        // ⚠️ 重要：HubStudio 删除是异步的，需要等待足够的时间确保容器完全清除
+        // 否则立即创建新容器会导致资源冲突，创建两个环境窗口
+        console.log('[代理切换] ⏳ 等待旧容器完全清除（3秒）...');
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        console.log('[代理切换] ✓ 旧容器已清除，准备创建新容器');
       } catch (e) {
         console.warn('[代理切换] 删除旧容器警告:', e.message);
+        // 即使删除失败，也等待一段时间再创建
+        console.log('[代理切换] ⏳ 继续等待（2秒后重试）...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
       
       // 使用新代理创建浏览器实例
@@ -690,9 +834,16 @@ class AmazonRegisterCore {
         this.tasklog({ message: '需要人机验证', logID: 'Warn-Info' });
         await this.solveCaptcha();
         this.tasklog({ message: '人机验证完成', logID: 'RG-Info-Operate' });
+        
+        // ⏳ 等待页面跳转回注册界面
+        await this.page.waitForTimeout(utilRandomAround(3000, 5000));
       } else {
         this.tasklog({ message: '无需人机验证', logID: 'RG-Info-Operate' });
       }
+      
+      // ✅ 在邮箱验证前检查异常活动错误
+      // （验证码提交后跳回注册页，此时异常活动错误会显示在邮箱框上方）
+      await this.checkForAnomalies('开始邮箱验证前');
       
       // 8. 邮箱验证（带重试）
       const emailCode = await this.withRetry(
@@ -811,6 +962,17 @@ class AmazonRegisterCore {
       };
       
     } catch (error) {
+      // ⚠️ 特殊错误需要重新抛出给主进程处理，不能被转成返回值
+      if (error.message === 'UNUSUAL_ACTIVITY_ERROR_RETRY' && error.unusualActivityRetry) {
+        console.log('[注册] 🔴 捕获到异常活动错误，重新抛出给主进程处理');
+        throw error;
+      }
+      
+      if (error.message === 'PUZZLE_PAGE_DETECTED_RETRY' && error.puzzleRetry) {
+        console.log('[注册] 🔴 捕获到Puzzle错误，重新抛出给主进程处理');
+        throw error;
+      }
+      
       // 如果检测到需要切换代理的情况
       // 禁用自动代理切换 - 每次都创建额外环境
       // if (error.message === 'NEED_PROXY_SWITCH' && !this.isRetryingRegistration) {
@@ -841,6 +1003,30 @@ class AmazonRegisterCore {
       
       console.error('注册失败:', error);
       this.tasklog({ logID: 'REGISTER_ERROR', message: `注册失败: ${error.message}` });
+      
+      // 1. 每次失败都关闭浏览器（无条件）
+      if (this.config.browser) {
+        console.log('[清理] 关闭浏览器...');
+        await this.config.browser.close().catch(e => {
+          console.warn('[清理] 关闭浏览器警告:', e.message);
+        });
+      }
+      
+      // 2. 只有启用了"失败删除"开关时，才删除环境容器
+      if (this.autoDeleteOnFailure && this.config.containerCode && this.config.hubstudio) {
+        console.log('[清理] 启用了失败删除开关，正在删除环境容器...');
+        try {
+          const containerCode = this.config.containerCode;
+          console.log(`[清理] 删除环境容器: ${containerCode}`);
+          await this.config.hubstudio.deleteContainer(containerCode);
+          console.log('[清理] ✓ 环境容器已删除');
+          this.tasklog({ logID: 'CONTAINER_DELETED', message: `任务失败，已删除环境: ${containerCode}` });
+        } catch (cleanupError) {
+          console.warn('[清理] 删除环境时出错:', cleanupError.message);
+          this.tasklog({ logID: 'CLEANUP_ERROR', message: `删除环境失败: ${cleanupError.message}` });
+        }
+      }
+      
       return {
         success: false,
         error: error.message,
@@ -1003,6 +1189,314 @@ class AmazonRegisterCore {
 
   /**
    * ============================================
+   * Puzzle 页面检测与恢复
+   * ============================================
+   */
+
+  /**
+   * 检测是否出现 "Solve this puzzle to protect your account" 界面
+   * @returns {Promise<boolean>} 是否检测到Puzzle界面
+   */
+  async detectPuzzlePage() {
+    try {
+      // 获取页面内容，检查是否存在puzzle相关的文本
+      const pageText = await this.page.locator('body').textContent();
+      const hasPuzzleText = pageText && pageText.includes('Solve this puzzle to protect your account');
+      
+      // 检查是否存在"Start Puzzle"按钮或其他puzzle相关的元素
+      const startPuzzleButton = await this.page.locator(
+        'button:has-text("Start Puzzle"), button:has-text("solve puzzle"), [class*="puzzle"]'
+      ).count();
+      
+      // 检查常见的puzzle容器
+      const puzzleContainer = await this.page.locator(
+        '[class*="puzzle"], [id*="puzzle"], [class*="amzn-cvf-puzzle"]'
+      ).count();
+      
+      if (hasPuzzleText || startPuzzleButton > 0 || puzzleContainer > 0) {
+        console.log('[Puzzle检测] ✅ 检测到Puzzle页面');
+        this.tasklog({ 
+          message: '检测到Puzzle页面：Solve this puzzle to protect your account', 
+          logID: 'Warn-Info' 
+        });
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.log('[Puzzle检测] ⚠️ 检测过程出错:', error.message);
+      return false;
+    }
+  }
+
+  /**
+   * 处理Puzzle页面恢复流程
+   * 1. 关闭当前浏览器
+   * 2. 删除浏览器环境
+   * 3. 通知主进程进行重新注册
+   */
+  async handlePuzzlePageRecovery() {
+    try {
+      this.tasklog({ 
+        message: '🔄 开始Puzzle恢复流程：关闭浏览器 → 删除环境 → 重新创建环境注册', 
+        logID: 'RG-Info-Operate' 
+      });
+      
+      const email = this.accountInfo.user;
+      console.log(`[Puzzle恢复] 📧 当前邮箱: ${email}`);
+      
+      // 1. 关闭当前页面
+      try {
+        if (this.page && !this.page.isClosed()) {
+          await this.page.close();
+          console.log('[Puzzle恢复] ✓ 已关闭页面');
+        }
+      } catch (error) {
+        console.log('[Puzzle恢复] ⚠️ 关闭页面时出错:', error.message);
+      }
+      
+      // 2. 如果有HubStudio容器，删除该容器
+      if (this.config.hubstudio && this.config.containerCode) {
+        try {
+          console.log(`[Puzzle恢复] 🗑️ 尝试删除HubStudio环境: ${this.config.containerCode}`);
+          
+          if (typeof this.config.hubstudio.destroyContainer === 'function') {
+            await this.config.hubstudio.destroyContainer(this.config.containerCode);
+            console.log(`[Puzzle恢复] ✓ 已删除HubStudio环境: ${this.config.containerCode}`);
+            this.tasklog({ 
+              message: `已删除HubStudio环境: ${this.config.containerCode}`, 
+              logID: 'RG-Info-Operate' 
+            });
+          } else if (typeof this.config.hubstudio.stopBrowser === 'function') {
+            await this.config.hubstudio.stopBrowser(this.config.containerCode);
+            console.log(`[Puzzle恢复] ✓ 已停止HubStudio浏览器: ${this.config.containerCode}`);
+          }
+        } catch (error) {
+          console.log('[Puzzle恢复] ⚠️ 删除HubStudio环境时出错:', error.message);
+          this.tasklog({ 
+            message: `删除HubStudio环境失败（非致命错误）: ${error.message}`, 
+            logID: 'Warn-Info' 
+          });
+        }
+      }
+      
+      // 3. 标记为重试注册，避免无限循环
+      if (!this.puzzleRetryCount) {
+        this.puzzleRetryCount = 0;
+      }
+      this.puzzleRetryCount++;
+      
+      if (this.puzzleRetryCount > 2) {
+        const errorMsg = `Puzzle验证失败，已重试 ${this.puzzleRetryCount} 次，放弃注册`;
+        console.error(`[Puzzle恢复] ❌ ${errorMsg}`);
+        this.tasklog({ 
+          message: errorMsg, 
+          logID: 'Error-Info' 
+        });
+        throw new Error(errorMsg);
+      }
+      
+      // 4. 抛出特殊错误，通知主进程重新创建环境和代理，然后重新注册
+      console.log(`[Puzzle恢复] 🔄 通知主进程处理重新创建和重新注册...`);
+      this.tasklog({ 
+        message: `使用邮箱 ${email} 重新开始注册流程，当前重试次数: ${this.puzzleRetryCount}`, 
+        logID: 'RG-Info-Operate' 
+      });
+      
+      const error = new Error('PUZZLE_PAGE_DETECTED_RETRY');
+      error.puzzleRetry = true;
+      error.email = email;
+      error.retryCount = this.puzzleRetryCount;
+      throw error;
+      
+    } catch (error) {
+      console.error('[Puzzle恢复] ❌ 恢复流程失败:', error.message);
+      this.tasklog({ 
+        message: `Puzzle恢复失败: ${error.message}`, 
+        logID: 'Error-Info' 
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * ============================================
+   * 统一异常检测方法 - 在每个关键步骤后调用
+   * 所有页面加载完都走一遍此异常检测
+   * ============================================
+   */
+  
+  /**
+   * 检测页面上的异常活动错误
+   * ⚠️ 只检测异常活动错误，不检测 Puzzle（Puzzle 由 solveCaptcha 内部处理）
+   * 在验证码提交后可能回到注册页并出现异常活动错误
+   * 如果检测到异常则直接抛出错误（由execute的catch块处理）
+   * 
+   * @param {string} step - 当前步骤名称，用于日志
+   * @throws {Error} 如果检测到异常活动错误
+   */
+  async checkForAnomalies(step = '未知步骤') {
+    try {
+      console.log(`\n[异常检测] ========== 在"${step}"检查异常活动错误 ==========`);
+      
+      // ✅ 只检测异常活动错误
+      console.log('[异常检测] 检测异常活动错误...');
+      const hasUnusualActivity = await this.detectUnusualActivityError();
+      if (hasUnusualActivity) {
+        console.log('[异常检测] ❌ 检测到异常活动错误！准备执行恢复流程...');
+        this.tasklog({ 
+          message: `在"${step}"检测到异常活动错误，执行恢复流程`, 
+          logID: 'Warn-Info' 
+        });
+        await this.handleUnusualActivityError();
+        // handleUnusualActivityError 会抛出错误
+        return;
+      }
+      
+      console.log(`[异常检测] ✅ 在"${step}"未检测到异常活动，继续流程\n`);
+      
+    } catch (error) {
+      // 这里捕获的都是需要重新抛出的特殊错误
+      console.log(`[异常检测] 🔴 检测到需要处理的错误: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * 检测异常活动错误（Account creation failed - Unusual activity detected）
+   * 在提交图片验证后可能出现此错误
+   * 
+   * @returns {Promise<boolean>} 如果检测到异常活动错误返回 true，否则返回 false
+   */
+  async detectUnusualActivityError() {
+    try {
+      const errorBox = await this.page.locator('#auth-error-message-box').count();
+      console.log('[异常活动检测] 错误框计数:', errorBox);
+      
+      if (errorBox > 0) {
+        // 再次确认错误信息内容
+        const errorContent = await this.page.locator('#auth-error-message-box').textContent();
+        console.log('[异常活动检测] 错误框内容:', errorContent);
+        
+        if (errorContent && (errorContent.includes('unusual activity') || errorContent.includes('We\'ve detected'))) {
+          console.log('[异常活动检测] ✗ 检测到异常活动错误');
+          console.log('[异常活动检测] 错误内容:', errorContent);
+          return true;
+        } else {
+          console.log('[异常活动检测] ⚠️ 找到错误框但内容不匹配');
+          return false;
+        }
+      }
+      console.log('[异常活动检测] 未找到错误框');
+      return false;
+    } catch (error) {
+      console.log('[异常活动检测] 检测失败:', error.message);
+      return false;
+    }
+  }
+
+  /**
+   * 处理异常活动错误恢复
+   * 流程：关闭当前浏览器 → 删除环境 → 通知主进程重新创建环境和代理 → 重新注册
+   * 
+   * @throws {Error} 抛出特殊错误给主进程处理
+   */
+  async handleUnusualActivityError() {
+    try {
+      console.log('[异常活动恢复] ===== 开始异常活动错误恢复流程 =====');
+      
+      this.tasklog({ 
+        message: '🔄 开始异常活动错误恢复流程：关闭浏览器 → 删除环境 → 重新创建环境注册', 
+        logID: 'Warn-Info' 
+      });
+      
+      const email = this.accountInfo.user;
+      console.log(`[异常活动恢复] 📧 当前邮箱: ${email}`);
+      
+      // 1. 关闭当前页面
+      try {
+        if (this.page && !this.page.isClosed()) {
+          await this.page.close();
+          console.log('[异常活动恢复] ✓ 已关闭页面');
+        }
+      } catch (error) {
+        console.log('[异常活动恢复] ⚠️ 关闭页面时出错:', error.message);
+      }
+      
+      // 2. 如果有HubStudio容器，删除该容器
+      if (this.config.hubstudio && this.config.containerCode) {
+        try {
+          console.log(`[异常活动恢复] 🗑️ 尝试删除HubStudio环境: ${this.config.containerCode}`);
+          
+          if (typeof this.config.hubstudio.destroyContainer === 'function') {
+            await this.config.hubstudio.destroyContainer(this.config.containerCode);
+            console.log(`[异常活动恢复] ✓ 已删除HubStudio环境: ${this.config.containerCode}`);
+            this.tasklog({ 
+              message: `已删除HubStudio环境: ${this.config.containerCode}`, 
+              logID: 'RG-Info-Operate' 
+            });
+          } else if (typeof this.config.hubstudio.stopBrowser === 'function') {
+            await this.config.hubstudio.stopBrowser(this.config.containerCode);
+            console.log(`[异常活动恢复] ✓ 已停止HubStudio浏览器: ${this.config.containerCode}`);
+          }
+        } catch (error) {
+          console.log('[异常活动恢复] ⚠️ 删除HubStudio环境时出错:', error.message);
+          this.tasklog({ 
+            message: `删除HubStudio环境失败（非致命错误）: ${error.message}`, 
+            logID: 'Warn-Info' 
+          });
+        }
+      }
+      
+      // 3. 标记异常活动重试，避免无限循环
+      if (!this.unusualActivityRetryCount) {
+        this.unusualActivityRetryCount = 0;
+      }
+      this.unusualActivityRetryCount++;
+      
+      if (this.unusualActivityRetryCount > 3) {
+        const errorMsg = `异常活动错误无法绕过，已重试 ${this.unusualActivityRetryCount} 次，放弃注册`;
+        console.error(`[异常活动恢复] ❌ ${errorMsg}`);
+        this.tasklog({ 
+          message: errorMsg, 
+          logID: 'Error-Info' 
+        });
+        throw new Error(errorMsg);
+      }
+      
+      // 4. 抛出特殊错误，通知主进程重新创建环境和代理，然后重新注册
+      console.log(`[异常活动恢复] 🔄 通知主进程处理重新创建和重新注册...`);
+      this.tasklog({ 
+        message: `使用邮箱 ${email} 重新开始注册流程，当前重试次数: ${this.unusualActivityRetryCount}`, 
+        logID: 'RG-Info-Operate' 
+      });
+      
+      const error = new Error('UNUSUAL_ACTIVITY_ERROR_RETRY');
+      error.unusualActivityRetry = true;
+      error.email = email;
+      error.retryCount = this.unusualActivityRetryCount;
+      
+      console.log('[异常活动恢复] 🔴 准备抛出错误:', {
+        message: error.message,
+        unusualActivityRetry: error.unusualActivityRetry,
+        email: error.email,
+        retryCount: error.retryCount
+      });
+      
+      throw error;
+      
+    } catch (error) {
+      console.error('[异常活动恢复] ❌ 恢复流程失败:', error.message);
+      this.tasklog({ 
+        message: `异常活动恢复失败: ${error.message}`, 
+        logID: 'Error-Info' 
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * ============================================
    * Captcha 处理 - 使用独立模块
    * ⚠️ 请勿修改此处代码！Captcha逻辑在 captchaHandler.js 中
    * ============================================
@@ -1134,11 +1628,10 @@ class AmazonRegisterCore {
         logID: 'RG-Info-Operate' 
       });
       
-      // 5. 等待页面稳定
+      // 5. 等待页面稳定（不在这里检查异常，因为页面还在加载跳转）
       await this.page.waitForTimeout(2000);
       
       return true;
-      
     } catch (error) {
       this.tasklog({ 
         message: `❌ 图片验证码处理异常: ${error.message}`, 
@@ -1407,9 +1900,10 @@ class AmazonRegisterCore {
       }
     });
     
+    // 提交2FA确认，如果出现TSV设置说明页会在该方法中处理
     await this.submitTwoStepVerification();
     
-    // 如果不绑定地址，跳转到首页
+    // 如果没有出现TSV，继续原有流程：地址绑定或跳转首页
     if (!this.config.bindAddress) {
       await this.goToNavLogo();
     }
@@ -1437,55 +1931,90 @@ class AmazonRegisterCore {
   }
 
   async expandAuthenticatorApp() {
-    // 1. 先尝试点击radio按钮选择"使用验证器应用"选项
+    this.tasklog({ message: '选择验证器应用选项并展开配置', logID: 'RG-Info-Operate' });
+    
+    // 1. 先尝试找到并点击"Use an authenticator app"的radio按钮
     const radioSelectors = [
-      'input[type="radio"][value="totp"]',
-      '#auth-TOTP',
-      'input[name="otpDeviceContext"][value="totp"]',
-      'input[value="totp"]'
+      // 按优先级排列
+      'label:has-text("Use an authenticator app") input[type="radio"]',
+      'input[type="radio"][value*="totp"]',
+      'input[type="radio"][value*="app"]',
+      'input[name*="otpDeviceContext"][value*="totp"]',
+      'input[type="radio"]:nth-of-type(2)',  // 通常第二个radio是认证器应用选项
     ];
     
-    let radioClicked = false;
+    let radioFound = false;
     for (const selector of radioSelectors) {
       try {
         const radio = this.page.locator(selector).first();
-        const isVisible = await radio.isVisible({ timeout: 2000 }).catch(() => false);
+        const count = await radio.count().then(c => c > 0);
         
-        if (isVisible) {
-          this.tasklog({ message: '选择使用验证器应用', logID: 'RG-Info-Operate' });
-          await radio.click();
-          await this.page.waitForTimeout(utilRandomAround(1000, 1500));
-          radioClicked = true;
+        if (count) {
+          // 检查radio是否已选中
+          const isChecked = await radio.isChecked().catch(() => false);
+          
+          if (!isChecked) {
+            this.tasklog({ message: '点击选择"使用验证器应用"选项', logID: 'RG-Info-Operate' });
+            await radio.click({ timeout: 5000 });
+            await this.page.waitForTimeout(utilRandomAround(800, 1200));
+          }
+          
+          radioFound = true;
           break;
         }
       } catch (error) {
         // 继续尝试下一个选择器
+        console.log(`[expandAuthenticatorApp] 选择器 "${selector}" 失败:`, error.message);
       }
     }
     
-    // 2. 再检查并展开accordion（如果需要）
-    const box = this.page.locator('#sia-otp-accordion-totp-header');
-    const boxExists = await box.count().then(c => c > 0);
-    
-    if (boxExists) {
-      const expanded = await box.getAttribute('aria-expanded');
+    // 2. 展开accordion - 无论radio点击成功与否都尝试展开
+    try {
+      const box = this.page.locator('#sia-otp-accordion-totp-header');
+      const boxExists = await box.count().then(c => c > 0);
       
-      if (expanded === 'false') {
-        this.tasklog({ message: '展开验证器应用配置区域', logID: 'RG-Info-Operate' });
-        await this.clickElement(box, {
-          title: '桌面端，主站，展开验证器应用配置'
-        });
+      if (boxExists) {
+        const expanded = await box.getAttribute('aria-expanded').catch(() => 'false');
+        
+        if (expanded === 'false') {
+          this.tasklog({ message: '展开验证器应用配置区域', logID: 'RG-Info-Operate' });
+          await box.click({ timeout: 5000 });
+          await this.page.waitForTimeout(utilRandomAround(800, 1200));
+        } else {
+          this.tasklog({ message: '验证器应用配置已展开', logID: 'RG-Info-Operate' });
+        }
       }
+    } catch (error) {
+      this.tasklog({ message: `展开accordion失败: ${error.message}`, logID: 'Warn-Info' });
     }
   }
 
   async fill2FACode(code) {
     this.tasklog({ message: '填写2FA验证码', logID: 'RG-Info-Operate' });
+    
+    const codeInput = this.page.locator('#ch-auth-app-code-input');
+    
+    // 确保元素可见
+    try {
+      await codeInput.waitFor({ state: 'visible', timeout: 10000 });
+    } catch (e) {
+      this.tasklog({ message: `2FA验证码输入框未出现（10秒超时）: ${e.message}`, logID: 'Warn-Info' });
+      throw new Error(`2FA验证码输入框不可见: ${e.message}`);
+    }
+    
+    // 滚动到输入框
+    await codeInput.evaluate(el => {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    
+    await this.page.waitForTimeout(utilRandomAround(500, 1000));
+    
     return this.fillInput(
-      this.page.locator('#ch-auth-app-code-input'),
+      codeInput,
       code,
       {
-        title: '桌面端，主站，填写2FA验证码'
+        title: '桌面端，主站，填写2FA验证码',
+        skipVisibilityCheck: true  // 已在上面做过waitFor和scroll，跳过重复检查
       }
     );
   }
@@ -1511,8 +2040,27 @@ class AmazonRegisterCore {
 
   async fill2FAEmailCode(code) {
     this.tasklog({ message: '填写开启2FA邮件验证码', logID: 'RG-Info-Operate' });
-    return this.fillInput(this.page.locator('#input-box-otp'), code, {
-      title: '桌面端，主站，填写开启2FA邮件验证码'
+    
+    const emailCodeInput = this.page.locator('#input-box-otp');
+    
+    // 确保元素可见
+    try {
+      await emailCodeInput.waitFor({ state: 'visible', timeout: 10000 });
+    } catch (e) {
+      this.tasklog({ message: `2FA邮件验证码输入框未出现（10秒超时）: ${e.message}`, logID: 'Warn-Info' });
+      throw new Error(`2FA邮件验证码输入框不可见: ${e.message}`);
+    }
+    
+    // 滚动到输入框
+    await emailCodeInput.evaluate(el => {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    
+    await this.page.waitForTimeout(utilRandomAround(500, 1000));
+    
+    return this.fillInput(emailCodeInput, code, {
+      title: '桌面端，主站，填写开启2FA邮件验证码',
+      skipVisibilityCheck: true  // 已在上面做过waitFor和scroll，跳过重复检查
     });
   }
 
@@ -1540,12 +2088,46 @@ class AmazonRegisterCore {
     
     // 点击确认按钮进入主页
     this.tasklog({ message: '点击确认按钮进入主页', logID: 'RG-Info-Operate' });
-    return this.clickElement(enableMfaFormSubmit, {
+    
+    // 不使用 waitForURL: true，因为可能会重定向到TSV页面或其他页面
+    // 改为手动点击并等待页面稳定
+    await this.clickElement(enableMfaFormSubmit, {
       title: '两步验证确认页面，点击按钮进入主页',
-      waitForURL: true
+      waitForURL: false
     });
+    
+    // 等待页面加载和渲染完成
+    console.log('[submitTwoStepVerification] 点击后等待页面加载...');
+    await this.page.waitForTimeout(utilRandomAround(2000, 3000));
+    
+    // 点击按钮后，立即检测是否出现TSV设置说明页
+    console.log('[submitTwoStepVerification] 开始检测TSV设置说明页...');
+    const currentUrl = this.page.url();
+    console.log('[submitTwoStepVerification] 当前URL:', currentUrl);
+    
+    if (await this.detectTSVSetupHowtoPage()) {
+      console.log('[submitTwoStepVerification] ✅ 检测到TSV设置说明页，进行处理');
+      this.tasklog({ message: '检测到Two-Step Verification设置说明页，跳过进入首页', logID: 'RG-Info-Operate' });
+      
+      // 直接导航到亚马逊首页，不点击TSV页面的按钮
+      await this.handleTSVSetupHowtoPage();
+      
+      // 等待首页加载
+      await this.page.waitForTimeout(utilRandomAround(2000, 3000));
+      
+      // 检测并处理站点选择弹窗
+      await this.handleCountrySelectionPopup();
+      
+      console.log('[submitTwoStepVerification] ✅ TSV处理完成，已进入首页');
+      return;
+    }
+    
+    console.log('[submitTwoStepVerification] ❌ 未检测到TSV设置说明页，已进入主页');
+    return;
   }
 
+  /**
+   * 检测并处理OTP完成后可能出现的TSV设置说明页
   /**
    * 跳过手机验证（点击取消按钮）
    * 当邮箱验证后进入手机绑定页面但没有OTP认证时使用
@@ -1831,13 +2413,16 @@ class AmazonRegisterCore {
 
   async goToStepVerification() {
     this.tasklog({ message: '打开两步验证', logID: 'RG-Info-Operate' });
-    return this.clickElement(
+    await this.clickElement(
       this.page.locator('a[href*="/a/settings/approval/setup/register?"]'),
       {
         title: '桌面端，主站，打开两步验证',
         waitForURL: true
       }
     );
+    
+    // 等待页面加载
+    await this.page.waitForTimeout(utilRandomAround(2000, 3000));
   }
 
   /**
@@ -1912,7 +2497,21 @@ class AmazonRegisterCore {
       // 转换为字符串（防止数字等其他类型）
       const inputStr = String(str);
       
-      // 使用简化的人类打字模拟（避免过度滚动和删除重打）
+      // 确保元素可见（如果没有设置 skipVisibilityCheck）
+      if (!options.skipVisibilityCheck) {
+        try {
+          await element.waitFor({ state: 'visible', timeout: 5000 });
+        } catch (e) {
+          throw new Error(`元素不可见: ${e.message}`);
+        }
+        
+        // 滚动到元素
+        await element.evaluate(el => {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+      }
+      
+      // 使用逼真的人类打字模拟
       await this.page.waitForTimeout(
         options.preDelay || utilRandomAround(250, 500)
       );
@@ -1925,15 +2524,71 @@ class AmazonRegisterCore {
         await this.page.waitForTimeout(utilRandomAround(200, 400));
       }
       
-      // 直接输入，不使用humanTypeLocator的删除重打功能
+      // 点击输入框
       await element.click({ delay: utilRandomAround(150) });
       await this.page.waitForTimeout(200 + Math.random() * 300);
+      
+      // 偶尔会有鼠标移动（更逼真的人类行为）
+      if (Math.random() < 0.15) {
+        const box = await element.boundingBox();
+        if (box) {
+          await this.page.mouse.move(
+            box.x + Math.random() * box.width * 0.5,
+            box.y + Math.random() * box.height * 0.5,
+            { steps: 3 }
+          );
+          await this.page.waitForTimeout(utilRandomAround(100, 300));
+        }
+      }
       
       // 逐字符输入，带随机延迟
       for (const ch of inputStr.split('')) {
         await this.page.keyboard.type(ch, { delay: 50 + Math.random() * 120 });
         if (Math.random() < 0.05) {
-          await this.page.waitForTimeout(Math.random() * 300); // 偶尔暂停，但时间更短
+          // 偶尔暂停，更自然
+          await this.page.waitForTimeout(Math.random() * 300);
+        }
+      }
+      
+      // 随机的"删除重填"行为（模拟用户输错了然后更正的情况）
+      // 10% 的概率会删除最后几个字符并重新输入
+      if (Math.random() < 0.1 && inputStr.length > 2) {
+        const deleteCount = Math.floor(Math.random() * 3) + 1; // 删除1-3个字符
+        const reType = inputStr.substring(inputStr.length - deleteCount);
+        
+        await this.page.waitForTimeout(utilRandomAround(200, 500));
+        
+        // 删除错误的字符
+        for (let i = 0; i < deleteCount; i++) {
+          await this.page.keyboard.press('Backspace');
+          await this.page.waitForTimeout(50 + Math.random() * 100);
+        }
+        
+        await this.page.waitForTimeout(utilRandomAround(150, 400));
+        
+        // 重新输入被删除的字符
+        for (const ch of reType.split('')) {
+          await this.page.keyboard.type(ch, { delay: 50 + Math.random() * 120 });
+          if (Math.random() < 0.05) {
+            await this.page.waitForTimeout(Math.random() * 200);
+          }
+        }
+      }
+      
+      // 验证输入是否成功（可选）
+      const inputValue = await element.inputValue().catch(() => '');
+      if (inputValue !== inputStr) {
+        console.warn(`⚠️ 输入验证失败: 期望 "${inputStr}", 实际 "${inputValue}"，尝试重新输入...`);
+        
+        // 清空并重新输入
+        await element.click({ delay: utilRandomAround(150) });
+        await this.page.keyboard.press('Control+A');
+        await this.page.keyboard.press('Backspace');
+        await this.page.waitForTimeout(utilRandomAround(200, 400));
+        
+        // 重新逐字符输入
+        for (const ch of inputStr.split('')) {
+          await this.page.keyboard.type(ch, { delay: 50 + Math.random() * 120 });
         }
       }
       
@@ -2356,13 +3011,23 @@ class AmazonRegisterCore {
    * 表单填写：城市
    */
   async fillCity(city) {
+    this.tasklog({ message: '检查城市字段...', logID: 'RG-Info-Operate' });
+    
+    const cityInput = this.page.locator('#address-ui-widgets-enterAddressCity');
+    const currentValue = await cityInput.inputValue().catch(() => '');
+    
+    // 如果已有内容，跳过填写
+    if (currentValue && currentValue.trim()) {
+      this.tasklog({ message: `城市字段已有内容: ${currentValue}，跳过填写`, logID: 'RG-Info-Operate' });
+      return;
+    }
+    
     this.tasklog({ message: '输入城市', logID: 'RG-Info-Operate' });
     return this.fillInput(
-      this.page.locator('#address-ui-widgets-enterAddressCity'),
+      cityInput,
       city,
       {
-        title: '桌面端，主站，输入城市',
-        clearContent: true  // 清空原有内容，避免重复
+        title: '桌面端，主站，输入城市'
       }
     );
   }
@@ -2381,13 +3046,23 @@ class AmazonRegisterCore {
    * 表单填写：邮编
    */
   async fillPostalCode(postCode) {
+    this.tasklog({ message: '检查邮编字段...', logID: 'RG-Info-Operate' });
+    
+    const postalCodeInput = this.page.locator('#address-ui-widgets-enterAddressPostalCode');
+    const currentValue = await postalCodeInput.inputValue().catch(() => '');
+    
+    // 如果已有内容，跳过填写
+    if (currentValue && currentValue.trim()) {
+      this.tasklog({ message: `邮编字段已有内容: ${currentValue}，跳过填写`, logID: 'RG-Info-Operate' });
+      return;
+    }
+    
     this.tasklog({ message: '输入邮编', logID: 'RG-Info-Operate' });
     return this.fillInput(
-      this.page.locator('#address-ui-widgets-enterAddressPostalCode'),
+      postalCodeInput,
       postCode,
       {
-        title: '桌面端，主站，输入邮编',
-        clearContent: true  // 清空原有内容，避免重复
+        title: '桌面端，主站，输入邮编'
       }
     );
   }

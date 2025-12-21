@@ -543,6 +543,405 @@ ipcMain.handle('amazon:executeRegisterScript', async (event, config) => {
     
   } catch (error) {
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    
+    // 调试日志：打印所有异常
+    console.log(`[任务 ${taskId}] 捕获异常:`, {
+      message: error.message,
+      unusualActivityRetry: error.unusualActivityRetry,
+      puzzleRetry: error.puzzleRetry,
+      stack: error.stack?.substring(0, 200)
+    });
+    
+    // 特殊处理：异常活动错误检测到，需要重新创建环境并重试
+    if (error.message === 'UNUSUAL_ACTIVITY_ERROR_RETRY' && error.unusualActivityRetry) {
+      console.log(`========== [任务 ${taskId}] 检测到异常活动错误，准备重新注册 ==========`);
+      console.log(`[任务 ${taskId}] 重试次数: ${error.retryCount}`);
+      
+      try {
+        // 获取当前浏览器实例信息
+        const currentContainerCode = coreConfig.containerCode;
+        const browserInstance = browserInstances.get(currentContainerCode);
+        
+        console.log(`[任务 ${taskId}] 当前容器: ${currentContainerCode}`);
+        console.log(`[任务 ${taskId}] 浏览器实例存在: ${!!browserInstance}`);
+        
+        // 1. 删除旧容器
+        if (browserInstance?.containerCode && browserInstance?.hubstudio) {
+          try {
+            console.log(`[任务 ${taskId}] 删除旧容器: ${browserInstance.containerCode}`);
+            await browserInstance.hubstudio.destroyContainer(browserInstance.containerCode);
+            browserInstances.delete(browserInstance.containerCode);
+            console.log(`[任务 ${taskId}] ✓ 旧容器已删除`);
+          } catch (deleteError) {
+            console.log(`[任务 ${taskId}] ⚠️ 删除旧容器时出错: ${deleteError.message}`);
+          }
+        } else {
+          console.log(`[任务 ${taskId}] ⚠️ 无法获取浏览器实例，尝试直接删除容器...`);
+          try {
+            const hubstudio = new (require('./utils/hubstudioClient'))();
+            await hubstudio.destroyContainer(currentContainerCode);
+            console.log(`[任务 ${taskId}] ✓ 容器已删除`);
+          } catch (e) {
+            console.log(`[任务 ${taskId}] ⚠️ 删除容器失败: ${e.message}`);
+          }
+        }
+        
+        // 2. 创建新容器和浏览器实例 - 需要使用新的代理！
+        console.log(`[任务 ${taskId}] 创建新的浏览器环境...`);
+        const { chromium } = require('playwright');
+        const HubStudioClient = require('./utils/hubstudioClient');
+        
+        // 准备启动浏览器的配置参数
+        let newProxy = null;
+        
+        // 如果有代理池，从池中取下一个代理；否则使用原代理
+        if (config.proxyPool && config.proxyPool.length > 0) {
+          // 切换到下一个代理
+          let nextProxyIndex = (config.proxyIndex + 1) % config.proxyPool.length;
+          newProxy = config.proxyPool[nextProxyIndex];
+          console.log(`[任务 ${taskId}] 从代理池中选择新代理 (${nextProxyIndex}/${config.proxyPool.length})`);
+          config.proxyIndex = nextProxyIndex;
+        } else if (config.proxy) {
+          // 如果没有代理池但有单个代理，仍然使用它
+          newProxy = config.proxy;
+          console.log(`[任务 ${taskId}] ⚠️ 没有代理池，继续使用原有代理`);
+        }
+        
+        const launchConfig = {
+          platformClient: config.platformClient || 'sell',
+          container: config.container || false,
+          proxy: newProxy,
+          proxyPrefix: config.proxyPrefix || null,
+          proxyPassword: config.proxyPassword || null,
+          cache: config.cache !== false,
+          arrange: config.arrange !== false,
+        };
+        
+        let newBrowserInstance = null;
+        const hubstudio = new HubStudioClient();
+        
+        try {
+          // 简化版本：使用HubStudio创建新容器
+          let proxyConfig = {};
+          if (launchConfig.proxy) {
+            const proxyUrl = new URL(launchConfig.proxy);
+            const protocol = proxyUrl.protocol.replace(':', '').toUpperCase();
+            
+            proxyConfig = {
+              proxyTypeName: protocol === 'SOCKS5' ? 'Socks5' : protocol,
+              proxyServer: proxyUrl.hostname,
+              proxyPort: parseInt(proxyUrl.port) || (protocol === 'HTTPS' ? 443 : 1080)
+            };
+            
+            if (proxyUrl.username) {
+              proxyConfig.proxyAccount = decodeURIComponent(proxyUrl.username);
+            }
+            if (proxyUrl.password) {
+              proxyConfig.proxyPassword = decodeURIComponent(proxyUrl.password);
+            }
+          }
+          
+          // 创建新容器 - 使用新的代理配置
+          const createContainerConfig = {
+            containerName: `Amazon-Register-UnusualActivity-Retry-${error.retryCount}-${Date.now()}`,
+            asDynamicType: 0,
+            ...proxyConfig
+          };
+          
+          const containerInfo = await hubstudio.createContainer(createContainerConfig);
+          const newContainerCode = containerInfo.containerCode;
+          console.log(`[任务 ${taskId}] ✓ 新容器创建成功: ${newContainerCode}`);
+          
+          // 启动浏览器
+          const browserInfo = await hubstudio.startBrowser({
+            containerCode: newContainerCode,
+            args: []
+          });
+          
+          // 连接到浏览器
+          const debugPort = browserInfo.debuggingPort;
+          const cdpInfoUrl = `http://127.0.0.1:${debugPort}/json/version`;
+          
+          let wsEndpoint;
+          try {
+            const fetch = require('node-fetch');
+            const response = await fetch(cdpInfoUrl);
+            const versionInfo = await response.json();
+            wsEndpoint = versionInfo.webSocketDebuggerUrl;
+          } catch (e) {
+            wsEndpoint = `ws://127.0.0.1:${debugPort}`;
+          }
+          
+          const browser = await chromium.connectOverCDP(wsEndpoint);
+          const context = browser.contexts()[0];
+          const page = context.pages()[0] || await context.newPage();
+          
+          newBrowserInstance = {
+            browser,
+            page,
+            hubstudio,
+            containerCode: newContainerCode,
+            createdAt: Date.now()
+          };
+          
+          browserInstances.set(newContainerCode, newBrowserInstance);
+          
+          // 更新 coreConfig 中的浏览器信息和代理信息
+          coreConfig.page = page;
+          coreConfig.browser = browser;
+          coreConfig.hubstudio = hubstudio;
+          coreConfig.containerCode = newContainerCode;
+          coreConfig.proxy = newProxy;  // 更新为新的代理
+          coreConfig.proxyIndex = config.proxyIndex;  // 更新代理池索引
+          
+          console.log(`[任务 ${taskId}] ✓ 新环境创建成功: ${newContainerCode}`);
+          console.log(`[任务 ${taskId}] 使用代理: ${newProxy ? '是 (新代理)' : '否'}`);
+          
+        } catch (createError) {
+          throw new Error(`创建新环境失败: ${createError.message}`);
+        }
+        
+        // 3. 使用新环境重新执行注册
+        console.log(`[任务 ${taskId}] 使用新环境重新执行注册...`);
+        const registerCore = new AmazonRegisterCore(coreConfig);
+        const result = await registerCore.execute();
+        
+        console.log(`[任务 ${taskId}] 重试注册完成，结果: ${result.success ? '成功' : '失败'}`);
+        
+        // 记录到数据库
+        try {
+          const { getAccountDatabase } = require('./refactored-backend/database/accountDatabase');
+          const accountDb = getAccountDatabase();
+          
+          const accountData = {
+            email: error.email,
+            password: finalPassword,
+            name: coreConfig.name,
+            otpSecret: result.account?.otpSecret || '',
+            registerSuccess: result.success === true,
+            otpSuccess: result.account?.otpSecret ? true : false,
+            addressSuccess: result.addressBound === true,
+            notes: result.error || '(异常活动重试后注册)'
+          };
+          
+          accountDb.insertAccount(accountData);
+          console.log(`[任务 ${taskId}] 账号已记录到数据库（异常活动重试版本）`);
+        } catch (dbError) {
+          console.error(`[任务 ${taskId}] 记录数据库失败:`, dbError);
+        }
+        
+        console.log(`========== [任务 ${taskId}] 执行结束 (重试后${result.success ? '成功' : '失败'}) ==========\n`);
+        
+        return result;
+        
+      } catch (retryError) {
+        console.error(`[任务 ${taskId}] 异常活动重试流程失败: ${retryError.message}`);
+        console.log(`========== [任务 ${taskId}] 执行结束 (重试异常) ==========\n`);
+        
+        return {
+          success: false,
+          error: `异常活动错误无法绕过，重试也失败: ${retryError.message}`,
+          stack: retryError.stack
+        };
+      }
+    }
+    
+    // 特殊处理：Puzzle页面检测到，需要重新创建环境并重试
+    if (error.message === 'PUZZLE_PAGE_DETECTED_RETRY' && error.puzzleRetry) {
+      console.log(`========== [任务 ${taskId}] 检测到Puzzle页面，准备重新注册 ==========`);
+      console.log(`[任务 ${taskId}] 重试次数: ${error.retryCount}`);
+      
+      try {
+        // 获取当前浏览器实例信息
+        const currentContainerCode = coreConfig.containerCode;
+        const browserInstance = browserInstances.get(currentContainerCode);
+        
+        console.log(`[任务 ${taskId}] 当前容器: ${currentContainerCode}`);
+        console.log(`[任务 ${taskId}] 浏览器实例存在: ${!!browserInstance}`);
+        
+        // 1. 删除旧容器
+        if (browserInstance?.containerCode && browserInstance?.hubstudio) {
+          try {
+            console.log(`[任务 ${taskId}] 删除旧容器: ${browserInstance.containerCode}`);
+            await browserInstance.hubstudio.destroyContainer(browserInstance.containerCode);
+            browserInstances.delete(browserInstance.containerCode);
+            console.log(`[任务 ${taskId}] ✓ 旧容器已删除`);
+          } catch (deleteError) {
+            console.log(`[任务 ${taskId}] ⚠️ 删除旧容器时出错: ${deleteError.message}`);
+          }
+        } else {
+          console.log(`[任务 ${taskId}] ⚠️ 无法获取浏览器实例，尝试直接删除容器...`);
+          try {
+            const hubstudio = new (require('./utils/hubstudioClient'))();
+            await hubstudio.destroyContainer(currentContainerCode);
+            console.log(`[任务 ${taskId}] ✓ 容器已删除`);
+          } catch (e) {
+            console.log(`[任务 ${taskId}] ⚠️ 删除容器失败: ${e.message}`);
+          }
+        }
+        
+        // 2. 创建新容器和浏览器实例 - 需要使用新的代理！
+        console.log(`[任务 ${taskId}] 创建新的浏览器环境...`);
+        const { chromium } = require('playwright');
+        const HubStudioClient = require('./utils/hubstudioClient');
+        
+        // 准备启动浏览器的配置参数
+        let newProxy = null;
+        
+        // 如果有代理池，从池中取下一个代理；否则使用原代理
+        if (config.proxyPool && config.proxyPool.length > 0) {
+          // 切换到下一个代理
+          let nextProxyIndex = (config.proxyIndex + 1) % config.proxyPool.length;
+          newProxy = config.proxyPool[nextProxyIndex];
+          console.log(`[任务 ${taskId}] 从代理池中选择新代理 (${nextProxyIndex}/${config.proxyPool.length})`);
+          config.proxyIndex = nextProxyIndex;
+        } else if (config.proxy) {
+          // 如果没有代理池但有单个代理，仍然使用它
+          // （这种情况下 Puzzle 可能会再次出现，但我们已经尝试过了）
+          newProxy = config.proxy;
+          console.log(`[任务 ${taskId}] ⚠️ 没有代理池，继续使用原有代理`);
+        }
+        
+        const launchConfig = {
+          platformClient: config.platformClient || 'sell',
+          container: config.container || false,
+          proxy: newProxy,
+          proxyPrefix: config.proxyPrefix || null,
+          proxyPassword: config.proxyPassword || null,
+          cache: config.cache !== false,
+          arrange: config.arrange !== false,
+        };
+        
+        let newBrowserInstance = null;
+        const hubstudio = new HubStudioClient();
+        
+        try {
+          // 简化版本：使用HubStudio创建新容器
+          let proxyConfig = {};
+          if (launchConfig.proxy) {
+            const proxyUrl = new URL(launchConfig.proxy);
+            const protocol = proxyUrl.protocol.replace(':', '').toUpperCase();
+            
+            proxyConfig = {
+              proxyTypeName: protocol === 'SOCKS5' ? 'Socks5' : protocol,
+              proxyServer: proxyUrl.hostname,
+              proxyPort: parseInt(proxyUrl.port) || (protocol === 'HTTPS' ? 443 : 1080)
+            };
+            
+            if (proxyUrl.username) {
+              proxyConfig.proxyAccount = decodeURIComponent(proxyUrl.username);
+            }
+            if (proxyUrl.password) {
+              proxyConfig.proxyPassword = decodeURIComponent(proxyUrl.password);
+            }
+          }
+          
+          // 创建新容器 - 使用新的代理配置
+          const createContainerConfig = {
+            containerName: `Amazon-Register-Puzzle-Retry-${error.retryCount}-${Date.now()}`,
+            asDynamicType: 0,
+            ...proxyConfig
+          };
+          
+          const containerInfo = await hubstudio.createContainer(createContainerConfig);
+          const newContainerCode = containerInfo.containerCode;
+          console.log(`[任务 ${taskId}] ✓ 新容器创建成功: ${newContainerCode}`);
+          
+          // 启动浏览器
+          const browserInfo = await hubstudio.startBrowser({
+            containerCode: newContainerCode,
+            args: []
+          });
+          
+          // 连接到浏览器
+          const debugPort = browserInfo.debuggingPort;
+          const cdpInfoUrl = `http://127.0.0.1:${debugPort}/json/version`;
+          
+          let wsEndpoint;
+          try {
+            const fetch = require('node-fetch');
+            const response = await fetch(cdpInfoUrl);
+            const versionInfo = await response.json();
+            wsEndpoint = versionInfo.webSocketDebuggerUrl;
+          } catch (e) {
+            wsEndpoint = `ws://127.0.0.1:${debugPort}`;
+          }
+          
+          const browser = await chromium.connectOverCDP(wsEndpoint);
+          const context = browser.contexts()[0];
+          const page = context.pages()[0] || await context.newPage();
+          
+          newBrowserInstance = {
+            browser,
+            page,
+            hubstudio,
+            containerCode: newContainerCode,
+            createdAt: Date.now()
+          };
+          
+          browserInstances.set(newContainerCode, newBrowserInstance);
+          
+          // 更新 coreConfig 中的浏览器信息和代理信息
+          coreConfig.page = page;
+          coreConfig.browser = browser;
+          coreConfig.hubstudio = hubstudio;
+          coreConfig.containerCode = newContainerCode;
+          coreConfig.proxy = newProxy;  // 更新为新的代理
+          coreConfig.proxyIndex = config.proxyIndex;  // 更新代理池索引
+          
+          console.log(`[任务 ${taskId}] ✓ 新环境创建成功: ${newContainerCode}`);
+          console.log(`[任务 ${taskId}] 使用代理: ${newProxy ? '是 (新代理)' : '否'}`);
+          
+        } catch (createError) {
+          throw new Error(`创建新环境失败: ${createError.message}`);
+        }
+        
+        // 3. 使用新环境重新执行注册
+        console.log(`[任务 ${taskId}] 使用新环境重新执行注册...`);
+        const registerCore = new AmazonRegisterCore(coreConfig);
+        const result = await registerCore.execute();
+        
+        console.log(`[任务 ${taskId}] 重试注册完成，结果: ${result.success ? '成功' : '失败'}`);
+        
+        // 记录到数据库
+        try {
+          const { getAccountDatabase } = require('./refactored-backend/database/accountDatabase');
+          const accountDb = getAccountDatabase();
+          
+          const accountData = {
+            email: error.email,
+            password: finalPassword,
+            name: coreConfig.name,
+            otpSecret: result.account?.otpSecret || '',
+            registerSuccess: result.success === true,
+            otpSuccess: result.account?.otpSecret ? true : false,
+            addressSuccess: result.addressBound === true,
+            notes: result.error || '(Puzzle重试后注册)'
+          };
+          
+          accountDb.insertAccount(accountData);
+          console.log(`[任务 ${taskId}] 账号已记录到数据库（Puzzle重试版本）`);
+        } catch (dbError) {
+          console.error(`[任务 ${taskId}] 记录数据库失败:`, dbError);
+        }
+        
+        console.log(`========== [任务 ${taskId}] 执行结束 (重试后${result.success ? '成功' : '失败'}) ==========\n`);
+        
+        return result;
+        
+      } catch (retryError) {
+        console.error(`[任务 ${taskId}] Puzzle重试流程失败: ${retryError.message}`);
+        console.log(`========== [任务 ${taskId}] 执行结束 (重试异常) ==========\n`);
+        
+        return {
+          success: false,
+          error: `Puzzle验证失败，重试也失败: ${retryError.message}`,
+          stack: retryError.stack
+        };
+      }
+    }
+    
+    // 常规错误处理
     console.error(`========== [任务 ${taskId}] 执行异常 (耗时: ${duration}秒) ==========`);
     console.error(`[任务 ${taskId}] 错误:`, error.message);
     console.error(`[任务 ${taskId}] 堆栈:`, error.stack);
