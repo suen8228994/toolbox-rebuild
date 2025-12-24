@@ -9,6 +9,11 @@
             padding: 20px;
             max-width: 1400px;
             margin: 0 auto;
+            /* 使用垂直布局，将表格区域作为可伸缩滚动区域 */
+            display: flex;
+            flex-direction: column;
+            /* 保证页面内可用高度，使内部滚动有效（body overflow:hidden 全局存在） */
+            height: calc(100vh - 40px);
         }
 
         .header {
@@ -72,7 +77,10 @@
         .table-container {
             background: rgba(255, 255, 255, 0.05);
             border-radius: 8px;
-            overflow: hidden;
+            /* 将表格区域设置为可伸缩的 flex 子项，使其在父容器内独立滚动 */
+            flex: 1 1 auto;
+            min-height: 120px;
+            overflow-y: auto;
         }
 
         table {

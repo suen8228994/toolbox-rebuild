@@ -120,23 +120,58 @@ function initMicrosoftEmailExtract() {
       for (const f of folders.value || []) {
         addLog(`${f.displayName} => ${f.id}`);
       }
-      const inbox = (folders.value || []).find(
-        (f) => (f.displayName || "").toLowerCase() === "inbox"
-      );
+
+      function tryMatchInboxFromList(list) {
+        const candidates = list || [];
+        for (const f of candidates) {
+          const dn = (f.displayName || "").trim().toLowerCase();
+          const dnl = (f.displayNameLocalized || "").toString().trim().toLowerCase();
+          const wkn = (f.wellKnownName || "").toString().trim().toLowerCase();
+
+          if (dn === "inbox" || dnl === "inbox" || wkn === "inbox") return f;
+          if (dn.includes("inbox") || dnl.includes("inbox") || wkn.includes("inbox")) return f;
+          if (dn.includes("收件箱") || dnl.includes("收件箱")) return f;
+        }
+        return null;
+      }
+
+      let inbox = tryMatchInboxFromList(folders.value);
+      if (!inbox) {
+        // 尝试使用 wellKnownName 过滤查询作为后备
+        addLog("未在 /me/mailFolders 列表中直接匹配到 Inbox，尝试使用 wellKnownName 过滤查询...", "info");
+        try {
+          const q = await graphGet(
+            token,
+            "https://graph.microsoft.com/v1.0/me/mailFolders?$filter=wellKnownName eq 'inbox'&$select=id,displayName,wellKnownName"
+          );
+          inbox = tryMatchInboxFromList(q.value);
+          if (!inbox && q.value && q.value.length > 0) {
+            inbox = q.value[0];
+          }
+        } catch (e) {
+          console.warn('wellKnownName fallback query failed', e);
+        }
+      }
+
       if (!inbox) {
         throw new Error(
-          "找不到 Inbox 文件夹（/me/mailFolders 返回里没有 Inbox）"
+          "找不到 Inbox 文件夹（/me/mailFolders 返回里没有可识别的收件箱名称）"
         );
       }
       addLog(`Inbox 文件夹 ID: ${inbox.id}`, "success");
 
-      addLog("正在获取收件箱最新邮件...");
+      addLog("正在获取收件箱最新邮件 (请求多条并在客户端选择最新)...");
       const latest = await graphGet(
         token,
-        `https://graph.microsoft.com/v1.0/me/mailFolders/${inbox.id}/messages?$top=1&$orderby=receivedDateTime desc&$select=subject,from,receivedDateTime,bodyPreview`
+        `https://graph.microsoft.com/v1.0/me/mailFolders/${inbox.id}/messages?$top=10&$select=subject,from,receivedDateTime,bodyPreview`
       );
 
-      const m = latest.value && latest.value[0];
+      // 确保即使 Graph 返回未排序，也能取到最新的一封
+      let m = null;
+      if (latest.value && latest.value.length > 0) {
+        latest.value.sort((a, b) => new Date(b.receivedDateTime) - new Date(a.receivedDateTime));
+        m = latest.value[0];
+      }
       if (!m) {
         addLog("Graph 调用成功，但收件箱暂无邮件", "success");
         return;

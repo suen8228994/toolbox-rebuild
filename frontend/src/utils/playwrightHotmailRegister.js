@@ -27,6 +27,10 @@ function generateUserData() {
   const birthMonth = String(Math.floor(Math.random() * 12) + 1).padStart(2, '0');
   const birthDay = String(Math.floor(Math.random() * 28) + 1).padStart(2, '0');
   
+  // 随机选择国家（避免硬编码为 US）
+  const countries = ['IN','ID','JP','KR','HK','PH','SG','VN','MM','TH','MY','TW','KP','BD','BT','MV','NP','PK','LK','BH','KW','OM','SE','QA','SA','AE','YE','CY','IQ','IL','JO','LB','PS','SY','AF','AM','AZ','IR','TR','KZ','KG','TJ','TM','UZ','GE','TL','MO','GB','FR','RU','IT','DE','LU','BY','BE','AT','ES','IE','FI','VA','PT','LV','PL','LT','HU','MD','NL','CH','MC','CZ','NO','IS','GR','MT','EE','UA','HR','US','CA','JM','LC','MX','PA','BR','AR','CO','CL','VE','PE','NZ','PW','AU','MG','MZ','ZA','ET','KE','GH','NG','DZ'];
+  const country = countries[Math.floor(Math.random() * countries.length)];
+
   return {
     email: `${firstName.toLowerCase()}${lastName.toLowerCase()}${Math.floor(Math.random() * 9999)}@outlook.com`,
     password: generatePassword(),
@@ -35,7 +39,7 @@ function generateUserData() {
     birthYear: birthYear,
     birthMonth: birthMonth,
     birthDay: birthDay,
-    country: 'US'
+    country: country
   };
 }
 

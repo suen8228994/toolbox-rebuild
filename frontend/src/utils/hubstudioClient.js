@@ -419,6 +419,68 @@ class HubStudioClient {
   }
 
   /**
+   * 更新环境信息（例如备注）
+   * @param {Object} options - 更新选项
+   * @param {string} options.containerCode - 环境ID
+   * @param {string} options.remark - 备注内容
+   * @returns {Promise<Object>}
+   */
+  async updateContainer(options = {}) {
+    const { containerCode, remark } = options;
+
+    if (!containerCode) {
+      throw new Error('containerCode is required');
+    }
+
+    // Use documented batch-update-remark endpoint (v3.37+)
+    const url = `${this.baseUrl}/api/v1/container/batch-update-remark`;
+
+    // API expects containerCodes array and type (1=overwrite,2=append)
+    const body = {
+      containerCodes: [containerCode],
+      remark: remark || '',
+      type: Number.isInteger(options && options.type) ? options.type : 1
+    };
+
+    // allow caller to pass coreVersion to target specific client core
+    if (options && options.coreVersion) body.coreVersion = options.coreVersion;
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+      });
+
+      const result = await response.json();
+      console.log('[HubStudio] batch-update-remark 响应:', JSON.stringify(result, null, 2));
+
+      // Expected shape: { code: 0, data: true, message: '', success: true }
+      if (result.code !== undefined && result.code !== 0) {
+        throw new Error(`HubStudio API Error [${result.code}]: ${result.msg || result.message}`);
+      }
+
+      if (result.success === false) {
+        throw new Error(`HubStudio API indicated failure: ${JSON.stringify(result)}`);
+      }
+
+      return result.data || result;
+    } catch (error) {
+      console.error('[HubStudio] 更新环境备注失败:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 兼容方法：部分代码调用 destroyContainer，提供别名以调用 deleteContainer
+   */
+  async destroyContainer(containerCode) {
+    return this.deleteContainer(containerCode);
+  }
+
+  /**
    * 获取错误信息
    * @param {number} code - 错误码
    * @returns {string} 错误描述

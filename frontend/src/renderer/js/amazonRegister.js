@@ -236,13 +236,19 @@ function initAmazonRegister() {
             console.log('[Register] 准备启动浏览器...');
             console.log('[Register] 配置:', config);
             
+            // 提取邮箱本地部分（email----password 格式中的 email 的 @ 之前）并传给主进程作为 containerName 提示
+            const emailLocalPart = (config.emailLine && config.emailLine.split('----')[0])
+                ? (config.emailLine.split('----')[0].split('@')[0] || undefined)
+                : undefined;
+
             // 使用 window.amazonBrowserAPI 调用主进程
             const browserResult = await window.amazonBrowserAPI.launchBrowser({
                 platformClient: config.platformClient,
                 args: config.args || [],
                 cache: config.cache,
                 arrange: config.arrange,
-                proxy: config.proxy || ''  // 传递代理配置
+                proxy: config.proxy || '',  // 传递代理配置
+                containerName: emailLocalPart
             });
             
             if (!browserResult.success) {
@@ -515,12 +521,22 @@ function initAmazonRegister() {
                     throw new Error('proxyGeneratorAPI 未找到');
                 }
                 
-                const generatedProxies = await window.proxyGeneratorAPI.generateProxies({
-                    country: 'US',
+                // 读取页面代理国家选择（支持 RANDOM）
+                const countrySelect = document.getElementById('proxy-country');
+                let country = countrySelect ? countrySelect.value : undefined;
+                if (country === 'RANDOM') {
+                    const countries = ['IN','ID','JP','KR','HK','PH','SG','VN','MM','TH','MY','TW','KP','BD','BT','MV','NP','PK','LK','BH','KW','OM','SE','QA','SA','AE','YE','CY','IQ','IL','JO','LB','PS','SY','AF','AM','AZ','IR','TR','KZ','KG','TJ','TM','UZ','GE','TL','MO','GB','FR','RU','IT','DE','LU','BY','BE','AT','ES','IE','FI','VA','PT','LV','PL','LT','HU','MD','NL','CH','MC','CZ','NO','IS','GR','MT','EE','UA','HR','US','CA','JM','LC','MX','PA','BR','AR','CO','CL','VE','PE','NZ','PW','AU','MG','MZ','ZA','ET','KE','GH','NG','DZ'];
+                    country = countries[Math.floor(Math.random() * countries.length)];
+                }
+
+                const genOptions = {
                     quantity: count,
                     prefix: proxyPrefix,
                     password: proxyPassword
-                });
+                };
+                if (country) genOptions.country = country;
+
+                const generatedProxies = await window.proxyGeneratorAPI.generateProxies(genOptions);
                 
                 if (generatedProxies && generatedProxies.length > 0) {
                     proxyData = generatedProxies;

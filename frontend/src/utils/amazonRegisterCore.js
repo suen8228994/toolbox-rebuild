@@ -1,3 +1,4 @@
+
 /**
  * Amazon Registration Core Logic
  * 完全基于 refactored-backend/services/task/operations/RegisterOperations.js
@@ -26,6 +27,7 @@ const {
   createPollingFactory,
   CustomError
 } = require('../refactored-backend/utils/toolUtils');
+// 注意：慢速逐字逻辑已合并到 `fillInput` 中，移除独立的 generateSlowType 引用
 
 const eventEmitter = require('../refactored-backend/utils/eventEmitter');
 
@@ -78,7 +80,21 @@ class AmazonRegisterCore {
     this.proxyPassword = config.proxyPassword || null;
     this.proxyPool = config.proxyPool || []; // 代理池
     this.currentProxyIndex = config.proxyIndex || 0;
-    this.proxyCountry = config.proxyCountry || 'US'; // 代理国家，支持：US, UK, CA, FR, DE, JP 等
+    // 代理国家：如果配置了就使用配置；否则从支持列表中随机选择一个
+    (function() {
+      const SUPPORTED_PROXY_COUNTRIES = [
+        'IN','ID','JP','KR','HK','PH','SG','VN','MM','TH','MY','TW','KP','BD','BT','MV','NP','PK','LK','BH','KW','OM',
+        'SE','QA','SA','AE','YE','CY','IQ','IL','JO','LB','PS','SY','AF','AM','AZ','IR','TR','KZ','KG','TJ','TM','UZ','GE','TL','MO',
+        'GB','FR','RU','IT','DE','LU','BY','BE','AT','ES','IE','FI','VA','PT','LV','PL','LT','HU','MD','NL','CH','MC','CZ','NO','IS','GR','MT','EE','UA','HR',
+        'US','CA','JM','LC','MX','PA','BR','AR','CO','CL','VE','PE','NZ','PW','AU','MG','MZ','ZA','ET','KE','GH','NG','DZ'
+      ];
+      const cfg = (config.proxyCountry || '').toString().trim().toUpperCase();
+      if (cfg && SUPPORTED_PROXY_COUNTRIES.includes(cfg)) {
+        this.proxyCountry = cfg;
+      } else {
+        this.proxyCountry = SUPPORTED_PROXY_COUNTRIES[Math.floor(Math.random() * SUPPORTED_PROXY_COUNTRIES.length)];
+      }
+    }).call(this);
     this.autoDeleteOnFailure = config.autoDeleteOnFailure || false; // 失败时自动删除环境（开关控制）
     
     // 重试配置
@@ -708,7 +724,10 @@ class AmazonRegisterCore {
    * 错误创建
    */
   createError(error) {
-    throw new CustomError(error.message, error.logID);
+    // Normalize to object with message and logID (CustomError expects an object)
+    const msg = (error && (error.message || error.toString())) || 'Unknown error';
+    const logID = (error && error.logID) || null;
+    throw new CustomError({ message: msg, logID });
   }
 
   /**
@@ -794,24 +813,10 @@ class AmazonRegisterCore {
       }
       
       // 5. 填写注册表单（带重试）
+      // 5. 填写注册表单（带重试）
       await this.withRetry(
-        () => this.fillUsername(username),
-        '填写用户名'
-      );
-      
-      await this.withRetry(
-        () => this.fillEmail(this.accountInfo.user),
-        '填写邮箱'
-      );
-      
-      await this.withRetry(
-        () => this.fillPassword(this.accountInfo.password),
-        '填写密码'
-      );
-      
-      await this.withRetry(
-        () => this.fillPasswordConfirm(this.accountInfo.password),
-        '确认密码'
+        () => this.fillRegistrationFields(username, this.accountInfo.user, this.accountInfo.password),
+        '填写注册表单'
       );
       
       // 6. 提交注册（带重试）
@@ -953,7 +958,7 @@ class AmazonRegisterCore {
       }
       
       this.tasklog({ logID: 'REGISTER_SUCCESS', message: '注册完成', account: this.accountInfo.user });
-      
+      await this.handleRegisterSuccess();
       return {
         success: true,
         account: {
@@ -1011,29 +1016,7 @@ class AmazonRegisterCore {
       console.error('注册失败:', error);
       this.tasklog({ logID: 'REGISTER_ERROR', message: `注册失败: ${error.message}` });
       
-      // 1. 每次失败都关闭浏览器（无条件）
-      if (this.config.browser) {
-        console.log('[清理] 关闭浏览器...');
-        await this.config.browser.close().catch(e => {
-          console.warn('[清理] 关闭浏览器警告:', e.message);
-        });
-      }
-      
-      // 2. 只有启用了"失败删除"开关时，才删除环境容器
-      if (this.autoDeleteOnFailure && this.config.containerCode && this.config.hubstudio) {
-        console.log('[清理] 启用了失败删除开关，正在删除环境容器...');
-        try {
-          const containerCode = this.config.containerCode;
-          console.log(`[清理] 删除环境容器: ${containerCode}`);
-          await this.config.hubstudio.deleteContainer(containerCode);
-          console.log('[清理] ✓ 环境容器已删除');
-          this.tasklog({ logID: 'CONTAINER_DELETED', message: `任务失败，已删除环境: ${containerCode}` });
-        } catch (cleanupError) {
-          console.warn('[清理] 删除环境时出错:', cleanupError.message);
-          this.tasklog({ logID: 'CLEANUP_ERROR', message: `删除环境失败: ${cleanupError.message}` });
-        }
-      }
-      
+      await this.handleRegisterFailure(error);
       return {
         success: false,
         error: error.message,
@@ -1048,6 +1031,12 @@ class AmazonRegisterCore {
         addressBound: false,
         logs: this.logs
       };
+    } finally {
+      try {
+        await this._ensureFinalCleanup();
+      } catch (finalErr) {
+        console.warn('[清理] 最终清理失败:', finalErr && finalErr.message ? finalErr.message : finalErr);
+      }
     }
   }
 
@@ -1143,38 +1132,42 @@ class AmazonRegisterCore {
    */
   async fillUsername(name) {
     this.tasklog({ message: '输入用户名', logID: 'RG-Info-Operate' });
-    return this.fillInput(this.page.locator('#ap_customer_name'), name, {
-      title: '桌面端，主站，填写用户名',
-      preDelay: utilRandomAround(1000, 2000),
-      postDelay: utilRandomAround(4000, 6000)
-    });
+    const options = arguments[1] || {};
+    const el = this.page.locator('#ap_customer_name');
+    await this.page.waitForTimeout(utilRandomAround(500, 1000));
+    await this.fillInput(el, name, Object.assign({}, options, { slowType: true, minDelayMs: 50, maxDelayMs: 300 }));
+    await this.page.waitForTimeout(utilRandomAround(2000, 3000));
+    return;
   }
 
   async fillEmail(email) {
     this.tasklog({ message: '输入邮箱', logID: 'RG-Info-Operate' });
-    return this.fillInput(this.page.locator('#ap_email'), email, {
-      title: '桌面端，主站，填写邮箱',
-      preDelay: utilRandomAround(1000, 2000),
-      postDelay: utilRandomAround(4000, 6000)
-    });
+    const options = arguments[1] || {};
+    const el = this.page.locator('#ap_email');
+    await this.page.waitForTimeout(utilRandomAround(500, 1000));
+    await this.fillInput(el, email, Object.assign({}, options, { slowType: true, minDelayMs: 50, maxDelayMs: 300 }));
+    await this.page.waitForTimeout(utilRandomAround(1000, 3000));
+    return;
   }
 
   async fillPassword(password) {
     this.tasklog({ message: '输入密码', logID: 'RG-Info-Operate' });
-    return this.fillInput(this.page.locator('#ap_password'), password, {
-      title: '桌面端，主站，填写密码',
-      preDelay: utilRandomAround(1000, 2000),
-      postDelay: utilRandomAround(2000, 2500)
-    });
+    const options = arguments[1] || {};
+    const el = this.page.locator('#ap_password');
+    await this.page.waitForTimeout(utilRandomAround(500, 1000));
+    await this.fillInput(el, password, Object.assign({}, options, { slowType: true, minDelayMs: 50, maxDelayMs: 300 }));
+    await this.page.waitForTimeout(utilRandomAround(500, 1500));
+    return;
   }
 
   async fillPasswordConfirm(password) {
     this.tasklog({ message: '再次确定密码', logID: 'RG-Info-Operate' });
-    return this.fillInput(this.page.locator('#ap_password_check'), password, {
-      title: '桌面端，主站，再次确定密码',
-      preDelay: utilRandomAround(1000, 2000),
-      postDelay: utilRandomAround(2000, 2500)
-    });
+    const options = arguments[1] || {};
+    const el = this.page.locator('#ap_password_check');
+    await this.page.waitForTimeout(utilRandomAround(500, 1000));
+    await this.fillInput(el, password, Object.assign({}, options, { slowType: true, minDelayMs: 50, maxDelayMs: 300 }));
+    await this.page.waitForTimeout(utilRandomAround(500, 1500));
+    return;
   }
 
   async submitRegistration() {
@@ -1192,6 +1185,50 @@ class AmazonRegisterCore {
       title: '桌面端，主站，提交注册',
       waitForURL: true
     });
+  }
+
+  /**
+   * 在注册页一次性填写所有主要字段，并在其中随机选择一个字段执行删除重填行为
+   */
+  async fillRegistrationFields(username, email, password) {
+    // fields in order
+    const fields = [
+      { fn: this.fillUsername.bind(this), args: [username] },
+      { fn: this.fillEmail.bind(this), args: [email] },
+      { fn: this.fillPassword.bind(this), args: [password] },
+      { fn: this.fillPasswordConfirm.bind(this), args: [password] }
+    ];
+
+    // 随机选择一个索引用于强制删除重填
+    const idx = Math.floor(Math.random() * fields.length);
+
+    for (let i = 0; i < fields.length; i++) {
+      const item = fields[i];
+      const opts = (i === idx) ? { forceDeleteRetype: true } : {};
+      await item.fn(...item.args, opts);
+    }
+  }
+
+  /**
+   * 在地址表单中填写城市/邮编等字段，并随机选择其中一个文本字段执行删除重填行为
+   */
+  async fillAddressFields({ city, stateCode, postalCode, phoneNumber, addressLine1 }) {
+    // candidate text fields for random retype
+    const candidates = [];
+    if (addressLine1) candidates.push({ fn: this.fillAddressLine1.bind(this), args: [addressLine1] });
+    if (city) candidates.push({ fn: this.fillCity.bind(this), args: [city] });
+    if (postalCode) candidates.push({ fn: this.fillPostalCode.bind(this), args: [postalCode] });
+    if (phoneNumber) candidates.push({ fn: this.fillPhoneNumber.bind(this), args: [phoneNumber] });
+
+    if (candidates.length === 0) return;
+
+    const idx = Math.floor(Math.random() * candidates.length);
+
+    for (let i = 0; i < candidates.length; i++) {
+      const it = candidates[i];
+      const opts = (i === idx) ? { forceDeleteRetype: true } : {};
+      await it.fn(...it.args, opts);
+    }
   }
 
   /**
@@ -1252,40 +1289,9 @@ class AmazonRegisterCore {
       const email = this.accountInfo.user;
       console.log(`[Puzzle恢复] 📧 当前邮箱: ${email}`);
       
-      // 1. 关闭当前页面
-      try {
-        if (this.page && !this.page.isClosed()) {
-          await this.page.close();
-          console.log('[Puzzle恢复] ✓ 已关闭页面');
-        }
-      } catch (error) {
-        console.log('[Puzzle恢复] ⚠️ 关闭页面时出错:', error.message);
-      }
-      
-      // 2. 如果有HubStudio容器，删除该容器
-      if (this.config.hubstudio && this.config.containerCode) {
-        try {
-          console.log(`[Puzzle恢复] 🗑️ 尝试删除HubStudio环境: ${this.config.containerCode}`);
-          
-          if (typeof this.config.hubstudio.destroyContainer === 'function') {
-            await this.config.hubstudio.destroyContainer(this.config.containerCode);
-            console.log(`[Puzzle恢复] ✓ 已删除HubStudio环境: ${this.config.containerCode}`);
-            this.tasklog({ 
-              message: `已删除HubStudio环境: ${this.config.containerCode}`, 
-              logID: 'RG-Info-Operate' 
-            });
-          } else if (typeof this.config.hubstudio.stopBrowser === 'function') {
-            await this.config.hubstudio.stopBrowser(this.config.containerCode);
-            console.log(`[Puzzle恢复] ✓ 已停止HubStudio浏览器: ${this.config.containerCode}`);
-          }
-        } catch (error) {
-          console.log('[Puzzle恢复] ⚠️ 删除HubStudio环境时出错:', error.message);
-          this.tasklog({ 
-            message: `删除HubStudio环境失败（非致命错误）: ${error.message}`, 
-            logID: 'Warn-Info' 
-          });
-        }
-      }
+      // 标记为失败（由外层 finally/_ensureFinalCleanup 负责实际关闭与按需删除）
+      try { this._lastOutcome = 'failure'; } catch (e) {}
+      this.tasklog({ message: 'Puzzle 恢复：标记为失败，等待最终清理', logID: 'RG-Info-Operate' });
       
       // 3. 标记为重试注册，避免无限循环
       if (!this.puzzleRetryCount) {
@@ -1420,40 +1426,9 @@ class AmazonRegisterCore {
       const email = this.accountInfo.user;
       console.log(`[异常活动恢复] 📧 当前邮箱: ${email}`);
       
-      // 1. 关闭当前页面
-      try {
-        if (this.page && !this.page.isClosed()) {
-          await this.page.close();
-          console.log('[异常活动恢复] ✓ 已关闭页面');
-        }
-      } catch (error) {
-        console.log('[异常活动恢复] ⚠️ 关闭页面时出错:', error.message);
-      }
-      
-      // 2. 如果有HubStudio容器，删除该容器
-      if (this.config.hubstudio && this.config.containerCode) {
-        try {
-          console.log(`[异常活动恢复] 🗑️ 尝试删除HubStudio环境: ${this.config.containerCode}`);
-          
-          if (typeof this.config.hubstudio.destroyContainer === 'function') {
-            await this.config.hubstudio.destroyContainer(this.config.containerCode);
-            console.log(`[异常活动恢复] ✓ 已删除HubStudio环境: ${this.config.containerCode}`);
-            this.tasklog({ 
-              message: `已删除HubStudio环境: ${this.config.containerCode}`, 
-              logID: 'RG-Info-Operate' 
-            });
-          } else if (typeof this.config.hubstudio.stopBrowser === 'function') {
-            await this.config.hubstudio.stopBrowser(this.config.containerCode);
-            console.log(`[异常活动恢复] ✓ 已停止HubStudio浏览器: ${this.config.containerCode}`);
-          }
-        } catch (error) {
-          console.log('[异常活动恢复] ⚠️ 删除HubStudio环境时出错:', error.message);
-          this.tasklog({ 
-            message: `删除HubStudio环境失败（非致命错误）: ${error.message}`, 
-            logID: 'Warn-Info' 
-          });
-        }
-      }
+      // 标记为失败（由外层 finally/_ensureFinalCleanup 负责实际关闭与按需删除）
+      try { this._lastOutcome = 'failure'; } catch (e) {}
+      this.tasklog({ message: '异常活动恢复：标记为失败，等待最终清理', logID: 'RG-Info-Operate' });
       
       // 3. 标记异常活动重试，避免无限循环
       if (!this.unusualActivityRetryCount) {
@@ -1597,6 +1572,166 @@ class AmazonRegisterCore {
       
     } catch (error) {
       console.error('[验证码监控] 设置监控失败:', error.message);
+    }
+  }
+
+  /**
+   * 底层统一关闭/停止/删除方法
+   * - 负责按顺序尝试关闭 page -> browser -> hubstudio.stopBrowser
+   * - 如果 deleteContainer 为 true，则尝试删除容器（deleteContainer 或 destroyContainer）
+   * - 此方法可被需要立即清理并删除环境的恢复路径调用，也会被 finally 中的 _ensureFinalCleanup 间接调用
+   */
+  async _closeAndStopBrowser({ deleteContainer = false, reason = null } = {}) {
+    try {
+      if (reason) this.tasklog({ message: `执行统一清理（${reason}）`, logID: 'RG-Info-Operate' });
+
+      // 1. 关闭 page
+      try {
+        if (this.page && typeof this.page.isClosed === 'function' && !this.page.isClosed()) {
+          await this.page.close();
+          this.tasklog({ message: '页面已关闭', logID: 'RG-Info-Operate' });
+        }
+      } catch (e) {
+        console.warn('[清理] 关闭页面失败:', e && e.message ? e.message : e);
+      }
+
+      // 2. 关闭 browser
+      try {
+        if (this.config && this.config.browser) {
+          try { await this.config.browser.close(); this.tasklog({ message: '浏览器已关闭', logID: 'RG-Info-Operate' }); this._browserClosedForCleanup = true; } catch (e) { console.warn('[清理] 关闭browser失败:', e && e.message ? e.message : e); this._browserClosedForCleanup = false; }
+        }
+      } catch (e) {}
+
+      // 3. 停止 hubstudio 浏览器（如果可用） - 如果本地 browser 已成功 close，则无需调用 stopBrowser
+      try {
+        if (this.config && this.config.hubstudio && this.config.containerCode && typeof this.config.hubstudio.stopBrowser === 'function') {
+          const hub = this.config.hubstudio;
+          const code = this.config.containerCode;
+
+          // 诊断：获取浏览器状态（尽量记录以便排查）
+          try {
+            const statusRes = await hub.getBrowserStatus([code]);
+            this.tasklog({ message: `HubStudio getBrowserStatus 响应: ${JSON.stringify(statusRes)}`, logID: 'RG-Info-Operate' });
+          } catch (statusErr) {
+            this.tasklog({ message: `HubStudio getBrowserStatus 失败: ${statusErr && statusErr.message ? statusErr.message : statusErr}`, logID: 'Warn-Info' });
+          }
+
+          // 如果我们已经成功关闭了本地 browser（playwright），通常不需要再调用 hubstudio.stopBrowser
+          if (this._browserClosedForCleanup) {
+            this.tasklog({ message: `本地browser已关闭，跳过 HubStudio stopBrowser 调用: ${code}`, logID: 'RG-Info-Operate' });
+          } else {
+            try {
+              await hub.stopBrowser(code);
+              this.tasklog({ message: 'HubStudio 浏览器已停止', logID: 'RG-Info-Operate' });
+            } catch (stopErr) {
+              const msg = stopErr && stopErr.message ? stopErr.message : String(stopErr);
+              if (msg.includes('-10004') || msg.includes('未找到环境信息') || msg.includes('Environment information not found')) {
+                this.tasklog({ message: `HubStudio stopBrowser 返回环境不存在 (${code})，视为已停止: ${msg}`, logID: 'RG-Info-Operate' });
+              } else {
+                console.warn('[清理] stopBrowser失败:', msg);
+              }
+            }
+          }
+        }
+      } catch (e) {}
+
+      // 4. 按需删除容器（谨慎执行，仅在明确需要删除时执行）
+      if (deleteContainer && this.config && this.config.hubstudio && this.config.containerCode) {
+        const hub = this.config.hubstudio;
+        const code = this.config.containerCode;
+        try {
+          // 在删除前，确保容器处于已关闭状态；轮询最多等待30秒
+          const maxWaitMs = 30000;
+          const pollInterval = 2000;
+          const start = Date.now();
+
+          let isClosed = false;
+
+          while (Date.now() - start < maxWaitMs) {
+            try {
+              const statusRes = await hub.getBrowserStatus([code]);
+
+              // statusRes 可能是旧格式或新格式
+              // 旧格式: { statusCode: '0', containers: [ { containerCode, status } ] }
+              // 新格式: result.data -> 可能包含 containers 或 mapping
+              let containers = null;
+              if (statusRes && statusRes.containers) {
+                containers = statusRes.containers;
+              } else if (statusRes && statusRes.data && statusRes.data.containers) {
+                containers = statusRes.data.containers;
+              } else if (Array.isArray(statusRes)) {
+                containers = statusRes;
+              } else if (statusRes && typeof statusRes === 'object') {
+                // 如果返回的是 mapping 或单个对象，尝试提取
+                if (statusRes[code]) {
+                  containers = [statusRes[code]];
+                }
+              }
+
+              if (containers && containers.length > 0) {
+                const found = containers.find(c => (c.containerCode === code) || (c.code === code) || (c.container_code === code));
+                const status = found && (found.status || found.statusCode || found.state || found.stateCode);
+
+                // HubStudio 状态码: 0=已开启,1=开启中,2=关闭中,3=已关闭
+                if (status !== undefined && (status === 3 || String(status) === '3' || String(status) === 'closed')) {
+                  isClosed = true;
+                  break;
+                }
+              }
+            } catch (e) {
+              // 忽略轮询中的错误，继续等待
+            }
+
+            await new Promise(r => setTimeout(r, pollInterval));
+          }
+
+          // 如果未检测到已关闭，也继续尝试删除（尽量不会阻塞太久）
+          if (!isClosed) {
+            this.tasklog({ message: '未检测到容器完全关闭，但将尝试删除以避免残留', logID: 'Warn-Info' });
+          }
+
+          let deleteSucceeded = false;
+          const tryDelete = async () => {
+            if (typeof hub.deleteContainer === 'function') {
+              await hub.deleteContainer(code);
+            } else if (typeof hub.destroyContainer === 'function') {
+              await hub.destroyContainer(code);
+            } else {
+              throw new Error('HubStudio client has no deleteContainer/destroyContainer');
+            }
+          };
+
+          // 重试删除，遇到 -10004（环境不存在）视为已删除/无须再处理
+          for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+              await tryDelete();
+              this.tasklog({ message: `容器已删除: ${code} (attempt ${attempt})`, logID: 'RG-Info-Operate' });
+              deleteSucceeded = true;
+              break;
+            } catch (delErr) {
+              const msg = delErr && delErr.message ? delErr.message : String(delErr);
+              // 容器不存在，认为已删除
+              if (msg.includes('-10004') || msg.includes('未找到环境信息') || msg.includes('Environment information not found')) {
+                this.tasklog({ message: `容器 (${code}) 在HubStudio中未找到，视为已删除: ${msg}`, logID: 'RG-Info-Operate' });
+                deleteSucceeded = true;
+                break;
+              }
+
+              console.warn(`[清理] deleteContainer attempt ${attempt} 失败:`, msg);
+              // 小等待后重试
+              await new Promise(r => setTimeout(r, 1000));
+            }
+          }
+
+          if (!deleteSucceeded) {
+            console.warn('[清理] 多次尝试后删除容器失败:', code);
+          }
+        } catch (e) {
+          console.warn('[清理] 删除容器失败:', e && e.message ? e.message : e);
+        }
+      }
+    } catch (error) {
+      console.warn('[清理] _closeAndStopBrowser 异常:', error && error.message ? error.message : error);
     }
   }
 
@@ -2540,9 +2675,11 @@ class AmazonRegisterCore {
           .waitForLoadState(options.waitUntil || 'load')
           .catch(() => {});
       }
-    } catch {
+    } catch (err) {
+      // include the underlying error message to aid debugging
+      const reason = err && err.message ? `: ${err.message}` : '';
       this.createError({
-        message: `${options.title} 操作失败`,
+        message: `${options.title} 操作失败${reason}`,
         logID: 'Error-Info'
       });
     }
@@ -2605,30 +2742,62 @@ class AmazonRegisterCore {
       }
       
       // 逐字符输入，带随机延迟
-      for (const ch of inputStr.split('')) {
-        await this.page.keyboard.type(ch, { delay: 50 + Math.random() * 120 });
-        if (Math.random() < 0.05) {
-          // 偶尔暂停，更自然
-          await this.page.waitForTimeout(Math.random() * 300);
+      // 支持慢速按键模式（模拟真实按键事件）或快速 keyboard.type 模式
+      const useSlowType = !!options.slowType || (options.minDelayMs !== undefined || options.maxDelayMs !== undefined);
+      const minDelayMs = (options.minDelayMs !== undefined) ? options.minDelayMs : (useSlowType ? 500 : 50);
+      const maxDelayMs = (options.maxDelayMs !== undefined) ? options.maxDelayMs : (useSlowType ? 2000 : 150);
+
+      if (useSlowType) {
+        // 慢速逐字，优先使用 element.press 以触发真实按键事件，失败退回到 element.type
+        try {
+          try { await element.click({ timeout: 3000 }); } catch (e) { /* ignore */ }
+        } catch (e) { }
+
+        for (const ch of inputStr.split('')) {
+          const waitMs = utilRandomAround(minDelayMs, maxDelayMs);
+          await this.page.waitForTimeout(waitMs);
+          try {
+            await element.press(ch);
+          } catch (e) {
+            try { await element.type(ch); } catch (e2) { /* ignore */ }
+          }
+
+          if (Math.random() < 0.05) {
+            await this.page.waitForTimeout(Math.random() * 300);
+          }
+        }
+      } else {
+        for (const ch of inputStr.split('')) {
+          await this.page.keyboard.type(ch, { delay: 50 + Math.random() * 120 });
+          if (Math.random() < 0.05) {
+            // 偶尔暂停，更自然
+            await this.page.waitForTimeout(Math.random() * 300);
+          }
         }
       }
       
       // 随机的"删除重填"行为（模拟用户输错了然后更正的情况）
-      // 10% 的概率会删除最后几个字符并重新输入
-      if (Math.random() < 0.1 && inputStr.length > 2) {
+      // 默认有小概率（10%）在当前输入字段进行删除重填
+      const shouldRandomRetype = (Math.random() < 0.1 && inputStr.length > 2);
+
+      // 如果上层显式要求在该字段强制执行删除重填（用于在一个页面的多个字段中只随机选择一个字段进行删除重填）
+      const forceRetype = !!options.forceDeleteRetype;
+
+      if (forceRetype || shouldRandomRetype) {
         const deleteCount = Math.floor(Math.random() * 3) + 1; // 删除1-3个字符
         const reType = inputStr.substring(inputStr.length - deleteCount);
-        
+
+        this.tasklog({ message: `执行删除重填: 删除 ${deleteCount} 字符（force=${forceRetype}）`, logID: 'RG-Info-Operate' });
         await this.page.waitForTimeout(utilRandomAround(200, 500));
-        
+
         // 删除错误的字符
         for (let i = 0; i < deleteCount; i++) {
           await this.page.keyboard.press('Backspace');
           await this.page.waitForTimeout(50 + Math.random() * 100);
         }
-        
+
         await this.page.waitForTimeout(utilRandomAround(150, 400));
-        
+
         // 重新输入被删除的字符
         for (const ch of reType.split('')) {
           await this.page.keyboard.type(ch, { delay: 50 + Math.random() * 120 });
@@ -2749,10 +2918,10 @@ class AmazonRegisterCore {
       const enterAddressFirst = Math.random() < 0.5;
       
       if (enterAddressFirst) {
-        await this.fillPhoneNumber(phoneNumber);
-        await this.fillAddressLine1(addressLine1);
+        // 同页内多个输入框，使用分组填写并随机在其中一个字段执行删除重填
+        await this.fillAddressFields({ phoneNumber, addressLine1 });
       } else {
-        await this.fillAddressLine1(addressLine1);
+        await this.fillAddressFields({ addressLine1 });
       }
       
       // 检查亚马逊的地址建议（与toolbox一致）
@@ -2760,9 +2929,10 @@ class AmazonRegisterCore {
       
       // 如果没有选择建议地址，填写剩余字段（与toolbox一致）
       if (!this.suggestedAddress) {
-        await this.fillCity(city);
+        // 在城市/邮编等字段中随机选择一个字段进行删除重填
+        await this.fillAddressFields({ city, stateCode, postalCode });
+        // selectState 仍需要单独调用以设置下拉
         await this.selectState(stateCode);
-        await this.fillPostalCode(postalCode);
       }
       
       // 填写电话号码（如果还没填 - 与toolbox一致）
@@ -2922,6 +3092,87 @@ class AmazonRegisterCore {
     return false;
   }
 
+    /**
+   * 注册失败统一清理方法
+   * 关闭浏览器、删除容器、更新账号管理状态
+   */
+  async handleRegisterFailure(error) {
+    // 统一的失败处理：记录日志、设置状态，由最终清理方法实际执行关闭/删除
+    try {
+      this.tasklog({ message: `注册失败：${error && error.message ? error.message : String(error)}`, logID: 'REGISTER_FAILURE' });
+    } catch (e) {}
+
+    // 设置最后结果为 failure，最终清理会根据此值决定是否删除容器
+    try { this._lastOutcome = 'failure'; } catch (e) {}
+
+    // 更新账号管理状态（renderer 或通过 config 提供的 API）
+    try {
+      const accountApi = (typeof window !== 'undefined' && window.accountManagerAPI) ? window.accountManagerAPI : (this.config && this.config.accountManagerAPI) ? this.config.accountManagerAPI : null;
+      if (this.accountInfo && this.accountInfo.user && accountApi && accountApi.updateAccountStatus) {
+        await accountApi.updateAccountStatus(this.accountInfo.user, { status: 'failed', error: error && error.message ? error.message : String(error) });
+      }
+    } catch (e) {
+      console.warn('[清理] 更新账号状态失败:', e && e.message ? e.message : e);
+    }
+  }
+
+  /**
+   * 注册成功统一清理方法
+   * 关闭浏览器、删除容器、更新账号管理状态
+   */
+  async handleRegisterSuccess() {
+    // 统一的成功处理：记录日志并设置状态，由最终清理方法实际执行关闭（但成功不要删除容器）
+    try {
+      this.tasklog({ message: '注册成功，准备最终清理', logID: 'REGISTER_SUCCESS' });
+    } catch (e) {}
+
+    try { this._lastOutcome = 'success'; } catch (e) {}
+
+    // 更新账号管理状态
+    try {
+      const accountApi = (typeof window !== 'undefined' && window.accountManagerAPI) ? window.accountManagerAPI : (this.config && this.config.accountManagerAPI) ? this.config.accountManagerAPI : null;
+      if (this.accountInfo && this.accountInfo.user && accountApi && accountApi.updateAccountStatus) {
+        await accountApi.updateAccountStatus(this.accountInfo.user, { status: 'success' });
+      }
+    } catch (e) {
+      console.warn('[清理] 更新账号状态失败:', e && e.message ? e.message : e);
+    }
+  }
+
+  /**
+   * 最终清理：确保浏览器窗口被关闭，容器按需删除，且账号状态已更新。
+   * 该方法在所有退出路径的 finally 中被调用，防止环境残留。
+   */
+  async _ensureFinalCleanup() {
+    if (this._cleanupDone) return;
+
+    this.tasklog({ message: '执行最终清理', logID: 'RG-Info-Operate' });
+
+    // 根据最后结果决定是否删除容器
+    const shouldDelete = (this._lastOutcome === 'failure') && this.autoDeleteOnFailure;
+
+    // 使用统一底层方法完成关闭/停止/按需删除
+    try {
+      await this._closeAndStopBrowser({ deleteContainer: shouldDelete, reason: 'final-cleanup' });
+    } catch (e) {
+      console.warn('[清理] _ensureFinalCleanup 调用统一清理失败:', e && e.message ? e.message : e);
+    }
+
+    // 确保账号管理端已更新状态（如果尚未更新）
+    try {
+      const accountApi = (typeof window !== 'undefined' && window.accountManagerAPI) ? window.accountManagerAPI : (this.config && this.config.accountManagerAPI) ? this.config.accountManagerAPI : null;
+      if (this.accountInfo && this.accountInfo.user && accountApi && accountApi.updateAccountStatus) {
+        // finished 表示流程已走到终点（无论成功或失败）
+        await accountApi.updateAccountStatus(this.accountInfo.user, { status: 'finished' });
+        this.tasklog({ message: `账号状态已更新为 finished: ${this.accountInfo.user}`, logID: 'RG-Info-Operate' });
+      }
+    } catch (e) {
+      console.warn('[清理] 更新账号状态失败:', e && e.message ? e.message : e);
+    }
+
+    this._cleanupDone = true;
+  }
+
   /**
    * 导航：打开个人中心
    * @param {boolean} skipLoginCheck - 是否跳过登录状态检查（注册后立即导航时使用）
@@ -3011,13 +3262,14 @@ class AmazonRegisterCore {
    */
   async fillAddressLine1(line) {
     this.tasklog({ message: '输入地址1', logID: 'RG-Info-Operate' });
+    const options = arguments[1] || {};
     await this.fillInput(
       this.page.locator('#address-ui-widgets-enterAddressLine1'),
       line,
-      {
+      Object.assign({
         title: '桌面端，主站，输入地址1',
         clearContent: true  // 清空原有内容，避免重复
-      }
+      }, options)
     );
     
     // 输入地址后，等待一下让下拉建议出现或确认没有建议
@@ -3086,12 +3338,11 @@ class AmazonRegisterCore {
     }
     
     this.tasklog({ message: '输入城市', logID: 'RG-Info-Operate' });
+    const options = arguments[1] || {};
     return this.fillInput(
       cityInput,
       city,
-      {
-        title: '桌面端，主站，输入城市'
-      }
+      Object.assign({ title: '桌面端，主站，输入城市' }, options)
     );
   }
 
@@ -3121,12 +3372,11 @@ class AmazonRegisterCore {
     }
     
     this.tasklog({ message: '输入邮编', logID: 'RG-Info-Operate' });
+    const options = arguments[1] || {};
     return this.fillInput(
       postalCodeInput,
       postCode,
-      {
-        title: '桌面端，主站，输入邮编'
-      }
+      Object.assign({ title: '桌面端，主站，输入邮编' }, options)
     );
   }
 

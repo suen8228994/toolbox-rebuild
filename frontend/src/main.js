@@ -121,8 +121,9 @@ const ipValidator = require(path.join(__dirname, 'utils/ipValidator.js'));
 ipcMain.handle('amazon:launchBrowser', async (event, config) => {
   console.log('IPC: amazon:launchBrowser called with config:', config);
   
+  let coreConfig = null;
   try {
-    const { platformClient, args = [], cache, arrange, proxy } = config;
+    const { platformClient, args = [], cache, arrange, proxy, containerName } = config;
     
     console.log('========== 代理调试信息 ==========');
     console.log('proxy 原始值:', proxy);
@@ -242,8 +243,13 @@ ipcMain.handle('amazon:launchBrowser', async (event, config) => {
       // 自动创建新环境
       console.log('正在创建新的HubStudio环境...');
       console.log('========== 发送到 HubStudio 的配置 ==========');
+      // 如果 renderer 传来了 containerName（例如邮箱本地部分），则优先使用。
+      const safeContainerName = containerName && typeof containerName === 'string'
+        ? containerName.replace(/[^a-zA-Z0-9-_\.]/g, '_').substring(0, 64)
+        : `Amazon-Register-${Date.now()}`;
+
       const createContainerConfig = {
-        containerName: `Amazon-Register-${Date.now()}`,
+        containerName: safeContainerName,
         asDynamicType: 0,  // 关闭IP变更提醒
         ...proxyConfig  // 应用代理配置
         // 不指定 coreVersion，让 HubStudio 使用最新内核版本
@@ -424,7 +430,7 @@ ipcMain.handle('amazon:executeRegisterScript', async (event, config) => {
     console.log(`[任务 ${taskId}] 站点: ${config.site || 'com'}`);
     
     // 准备完整配置参数
-    const coreConfig = {
+    coreConfig = {
       // 完整的 emailLine（包含 refresh_token）
       emailLine: config.emailLine,
       
@@ -476,6 +482,9 @@ ipcMain.handle('amazon:executeRegisterScript', async (event, config) => {
       
       // 时间戳（用于邮箱验证码筛选）
       registerTime: Date.now()
+      ,
+      // 失败删除开关（来自 renderer 的 failedDeleteEnvironment）
+      autoDeleteOnFailure: config.failedDeleteEnvironment === 'true' || config.failedDeleteEnvironment === true
     };
     
     // 创建核心注册实例并执行
@@ -533,6 +542,18 @@ ipcMain.handle('amazon:executeRegisterScript', async (event, config) => {
       
       accountDb.insertAccount(accountData);
       console.log(`[任务 ${taskId}] 账号已记录到数据库`);
+      // 更新 HubStudio 环境备注，写入注册/OTP/地址绑定状态
+      try {
+        const hub = browserInstance.hubstudio;
+        const targetContainer = browserInstance.containerCode;
+        if (hub && typeof hub.updateContainer === 'function') {
+          const remarkStr = `1 ${result.success ? '注册成功' : '注册失败'}，2 ${result.account?.otpSecret ? 'OTP验证成功' : 'OTP验证失败'}，3 ${result.addressBound ? '地址绑定成功' : '地址绑定失败'}`;
+          await hub.updateContainer({ containerCode: targetContainer, remark: remarkStr });
+          console.log(`[任务 ${taskId}] 已更新 HubStudio 备注: ${remarkStr}`);
+        }
+      } catch (hubErr) {
+        console.warn(`[任务 ${taskId}] 更新 HubStudio 备注失败: ${hubErr.message}`);
+      }
     } catch (dbError) {
       console.error(`[任务 ${taskId}] 记录数据库失败:`, dbError);
     }
@@ -947,6 +968,42 @@ ipcMain.handle('amazon:executeRegisterScript', async (event, config) => {
     console.error(`[任务 ${taskId}] 堆栈:`, error.stack);
     console.log(`========== [任务 ${taskId}] 执行结束 (异常) ==========\n`);
     
+    // 在返回之前，尝试将失败账号记录到本地账号数据库，确保账号管理中能看到该记录
+    try {
+      const { getAccountDatabase } = require('./refactored-backend/database/accountDatabase');
+      const accountDb = getAccountDatabase();
+      const failedEmail = (coreConfig && coreConfig.email) || (config && config.emailLine ? config.emailLine.split('----')[0] : null) || 'unknown';
+      const failedPassword = (coreConfig && coreConfig.password) || (config && config.emailLine ? (config.emailLine.split('----')[1] || '') : '');
+      const accountData = {
+        email: failedEmail,
+        password: failedPassword,
+        name: (coreConfig && coreConfig.name) || '',
+        otpSecret: '',
+        registerSuccess: false,
+        otpSuccess: false,
+        addressSuccess: false,
+        notes: error.message || ''
+      };
+      accountDb.insertAccount(accountData);
+      console.log(`[任务 ${taskId}] 失败账号已记录到数据库: ${accountData.email}`);
+    } catch (dbErr) {
+      console.warn(`[任务 ${taskId}] 记录失败账号到数据库时出错: ${dbErr.message}`);
+    }
+
+    // 尝试将失败状态写入 HubStudio 环境备注（容错处理，不影响返回）
+    try {
+      const targetContainer = (coreConfig && coreConfig.containerCode) || (config && config.containerCode);
+      if (targetContainer) {
+        const HubStudioClient = require('./utils/hubstudioClient');
+        const hubcli = new HubStudioClient();
+        const remarkStr = `1 注册失败，2 OTP验证失败，3 地址绑定失败`;
+        await hubcli.updateContainer({ containerCode: targetContainer, remark: remarkStr }).catch(() => {});
+        console.log(`[任务 ${taskId}] 已写入 HubStudio 备注 (失败): ${remarkStr}`);
+      }
+    } catch (hubErr) {
+      console.warn(`[任务 ${taskId}] 写入 HubStudio 备注失败: ${hubErr.message}`);
+    }
+
     return {
       success: false,
       error: error.message,

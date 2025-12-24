@@ -60,16 +60,58 @@ class EmailService {
 
     // 支持传入数组，依次尝试匹配
     const folderNames = Array.isArray(folderName) ? folderName : [folderName];
-    
+
+    // 规范化字符串用于比较（去空格，小写）
+    const normalize = str => (String(str || '')).trim().toLowerCase();
+
+    // 先构建一个可搜索的映射（避免多次遍历）
+    const folders = value || [];
+    const normalizedMap = folders.map(f => ({
+      id: f.id,
+      name: f.displayName,
+      norm: normalize(f.displayName),
+      wellKnown: normalize(f.wellKnownName || ''),
+      localized: normalize(f.displayNameLocalized || '')
+    }));
+
+    // 尝试多种匹配策略：完全匹配 -> 包含匹配 -> 反向包含（folder 包含目标或目标包含 folder）
     for (const name of folderNames) {
-      const folder = value.find(
-        (folder) => folder.displayName.toLowerCase() === name.toLowerCase()
-      );
-      if (folder) {
-        return folder.id;
-      }
+      const target = normalize(name);
+
+      // 1) 完全匹配（displayName / localized / wellKnown）
+      let found = normalizedMap.find(f => f.norm === target || f.localized === target || f.wellKnown === target);
+      if (found) return found.id;
+
+      // 2) 包含匹配（folder displayName 包含目标 或 localized 包含目标）
+      found = normalizedMap.find(f => f.norm.includes(target) || f.localized.includes(target));
+      if (found) return found.id;
+
+      // 3) 反向包含（目标包含 folder displayName）或目标与 wellKnownName 部分匹配
+      found = normalizedMap.find(f => target.includes(f.norm) || f.wellKnown && target.includes(f.wellKnown));
+      if (found) return found.id;
     }
-    
+
+    // 如果没找到，记录可用的文件夹名供诊断
+    try {
+      console.warn('[EmailService] 无法找到匹配的邮箱文件夹:', folderName);
+        console.warn('[EmailService] /me/mailFolders 返回的原始 folders:', value);
+    } catch (e) {}
+
+      // 后备：尝试使用 wellKnownName 过滤器直接查找 inbox（Graph 支持 wellKnownName）
+      try {
+        const filterRes = await client
+          .api("/me/mailFolders?$filter=wellKnownName eq 'inbox'")
+          .select('id,displayName,wellKnownName')
+          .get();
+
+        if (filterRes && Array.isArray(filterRes.value) && filterRes.value.length > 0) {
+          console.warn('[EmailService] 通过 wellKnownName 找到 inbox:', filterRes.value[0]);
+          return filterRes.value[0].id;
+        }
+      } catch (e) {
+        try { console.warn('[EmailService] wellKnownName 过滤查询失败:', e && e.message ? e.message : e); } catch (_) {}
+      }
+
     return undefined;
   }
 

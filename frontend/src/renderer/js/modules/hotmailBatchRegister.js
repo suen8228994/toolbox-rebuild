@@ -197,12 +197,18 @@ class HotmailBatchRegisterModule {
         this.addLog('正在自动生成代理...', 'info');
         let proxies = [];
         try {
-            proxies = await window.proxyGeneratorAPI.generateProxies({
-                country: 'US',
-                quantity: count,
-                prefix: 'rZwC7qlCe8',
-                password: '52572596'
-            });
+            // 使用页面选择的代理国家（如果有）或随机选择
+            const countryEl = document.getElementById('proxy-country');
+            let country = countryEl ? countryEl.value : undefined;
+            if (country === 'RANDOM') {
+                const countries = ['IN','ID','JP','KR','HK','PH','SG','VN','MM','TH','MY','TW','KP','BD','BT','MV','NP','PK','LK','BH','KW','OM','SE','QA','SA','AE','YE','CY','IQ','IL','JO','LB','PS','SY','AF','AM','AZ','IR','TR','KZ','KG','TJ','TM','UZ','GE','TL','MO','GB','FR','RU','IT','DE','LU','BY','BE','AT','ES','IE','FI','VA','PT','LV','PL','LT','HU','MD','NL','CH','MC','CZ','NO','IS','GR','MT','EE','UA','HR','US','CA','JM','LC','MX','PA','BR','AR','CO','CL','VE','PE','NZ','PW','AU','MG','MZ','ZA','ET','KE','GH','NG','DZ'];
+                country = countries[Math.floor(Math.random() * countries.length)];
+            }
+
+            const opts = { quantity: count, prefix: 'rZwC7qlCe8', password: '52572596' };
+            if (country) opts.country = country;
+
+            proxies = await window.proxyGeneratorAPI.generateProxies(opts);
             this.addLog(`成功生成 ${proxies.length} 个代理`, 'success');
         } catch (error) {
             this.addLog(`代理生成失败: ${error.message}`, 'warning');

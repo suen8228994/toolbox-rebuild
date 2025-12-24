@@ -263,6 +263,8 @@ function createPollingFactory({
   };
 }
 
+/* generateSlowType removed — slow typing behavior merged into AmazonRegisterCore.fillInput */
+
 /**
  * 生成网格位置
  */

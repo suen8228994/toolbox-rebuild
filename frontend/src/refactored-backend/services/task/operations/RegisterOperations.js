@@ -31,6 +31,8 @@ const {
   CustomError
 } = require('../../../utils/toolUtils');
 
+// (no slowType import here; core RegisterOperations uses fillInput)
+
 class RegisterOperations {
   /**
    * @param {Object} taskPublicService - Task public service instance

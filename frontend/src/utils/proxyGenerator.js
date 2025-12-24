@@ -45,8 +45,10 @@ function generateSessionId() {
  * @returns {Array<string>} 代理列表，格式：Host:Port:Username:Password
  */
 function generateProxies(options = {}) {
+    const countries = ['IN','ID','JP','KR','HK','PH','SG','VN','MM','TH','MY','TW','KP','BD','BT','MV','NP','PK','LK','BH','KW','OM','SE','QA','SA','AE','YE','CY','IQ','IL','JO','LB','PS','SY','AF','AM','AZ','IR','TR','KZ','KG','TJ','TM','UZ','GE','TL','MO','GB','FR','RU','IT','DE','LU','BY','BE','AT','ES','IE','FI','VA','PT','LV','PL','LT','HU','MD','NL','CH','MC','CZ','NO','IS','GR','MT','EE','UA','HR','US','CA','JM','LC','MX','PA','BR','AR','CO','CL','VE','PE','NZ','PW','AU','MG','MZ','ZA','ET','KE','GH','NG','DZ'];
+  let countriesCountry = countries[Math.floor(Math.random() * countries.length)];
   const {
-    country = 'US',
+    country = countriesCountry,
     quantity = 1,
     prefix = 'rZwC7qlCe8',
     password = '52572596'
