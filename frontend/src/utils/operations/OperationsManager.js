@@ -9,6 +9,8 @@ const TwoFactorAuthOperations = require('./TwoFactorAuthOperations');
 const EmailVerificationOperations = require('./EmailVerificationOperations');
 const AddressOperations = require('./AddressOperations');
 const LoginStatusOperations = require('./LoginStatusOperations');
+const StateOperations = require('./StateOperations');
+const CleanupOperations = require('./CleanupOperations');
 
 class OperationsManager {
   constructor(page, config, tasklog, accountInfo) {
@@ -26,6 +28,8 @@ class OperationsManager {
     this.emailVerification = new EmailVerificationOperations(page, config, tasklog, accountInfo, this.registerTime);
     this.address = new AddressOperations(page, config, tasklog);
     this.loginStatus = new LoginStatusOperations(page, config, tasklog);
+    this.state = new StateOperations(page, config, tasklog);
+    this.cleanup = new CleanupOperations(page, config, tasklog);
   }
 
   /**
@@ -47,7 +51,9 @@ class OperationsManager {
       twoFA: this.twoFactorAuth,
       email: this.emailVerification,
       address: this.address,
-      login: this.loginStatus
+      login: this.loginStatus,
+      state: this.state,
+      cleanup: this.cleanup
     };
   }
 }

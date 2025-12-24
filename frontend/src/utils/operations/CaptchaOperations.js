@@ -122,6 +122,123 @@ class CaptchaOperations extends BaseOperations {
       waitForURL: true
     });
   }
+
+  /**
+   * 处理拼图页面恢复
+   * 拼图验证失败时的恢复流程
+   */
+  async handlePuzzlePageRecovery(config = {}) {
+    try {
+      this.tasklog({ 
+        message: '🔄 开始Puzzle恢复流程：关闭浏览器 → 删除环境 → 重新创建环境注册', 
+        logID: 'RG-Info-Operate' 
+      });
+      
+      const email = config.email || this.accountInfo?.user || 'unknown';
+      console.log(`[Puzzle恢复] 📧 当前邮箱: ${email}`);
+      
+      // 标记为失败
+      this._lastOutcome = 'failure';
+      
+      // 获取Puzzle重试计数
+      if (!config.puzzleRetryCountMap) {
+        config.puzzleRetryCountMap = {};
+      }
+      if (!config.puzzleRetryCountMap[email]) {
+        config.puzzleRetryCountMap[email] = 0;
+      }
+      config.puzzleRetryCountMap[email]++;
+      
+      const retryCount = config.puzzleRetryCountMap[email];
+      
+      if (retryCount > 2) {
+        const errorMsg = `Puzzle验证失败，邮箱 ${email} 已重试 ${retryCount} 次，放弃注册`;
+        console.error(`[Puzzle恢复] ❌ ${errorMsg}`);
+        this.tasklog({ message: errorMsg, logID: 'Error-Info' });
+        throw new Error(errorMsg);
+      }
+      
+      console.log(`[Puzzle恢复] 🔄 通知主进程处理重新创建和重新注册...`);
+      this.tasklog({ 
+        message: `使用邮箱 ${email} 重新开始注册流程，当前重试次数: ${retryCount}`, 
+        logID: 'RG-Info-Operate' 
+      });
+      
+      const error = new Error('PUZZLE_PAGE_DETECTED_RETRY');
+      error.puzzleRetry = true;
+      error.email = email;
+      error.retryCount = retryCount;
+      throw error;
+      
+    } catch (error) {
+      console.error('[Puzzle恢复] ❌ 恢复流程失败:', error.message);
+      this.tasklog({ message: `Puzzle恢复失败: ${error.message}`, logID: 'Error-Info' });
+      throw error;
+    }
+  }
+
+  /**
+   * 处理异常活动错误恢复
+   */
+  async handleUnusualActivityError(config = {}) {
+    try {
+      console.log('[异常活动恢复] ===== 开始异常活动错误恢复流程 =====');
+      
+      this.tasklog({ 
+        message: '🔄 开始异常活动错误恢复流程：关闭浏览器 → 删除环境 → 重新创建环境注册', 
+        logID: 'Warn-Info' 
+      });
+      
+      const email = config.email || this.accountInfo?.user || 'unknown';
+      console.log(`[异常活动恢复] 📧 当前邮箱: ${email}`);
+      
+      // 标记为失败
+      this._lastOutcome = 'failure';
+      
+      // 获取异常活动重试计数
+      if (!config.unusualActivityRetryCountMap) {
+        config.unusualActivityRetryCountMap = {};
+      }
+      if (!config.unusualActivityRetryCountMap[email]) {
+        config.unusualActivityRetryCountMap[email] = 0;
+      }
+      config.unusualActivityRetryCountMap[email]++;
+      
+      const retryCount = config.unusualActivityRetryCountMap[email];
+      
+      if (retryCount > 3) {
+        const errorMsg = `异常活动错误无法绕过，邮箱 ${email} 已重试 ${retryCount} 次，放弃注册`;
+        console.error(`[异常活动恢复] ❌ ${errorMsg}`);
+        this.tasklog({ message: errorMsg, logID: 'Error-Info' });
+        throw new Error(errorMsg);
+      }
+      
+      console.log(`[异常活动恢复] 🔄 通知主进程处理重新创建和重新注册...`);
+      this.tasklog({ 
+        message: `使用邮箱 ${email} 重新开始注册流程，当前重试次数: ${retryCount}`, 
+        logID: 'RG-Info-Operate' 
+      });
+      
+      const error = new Error('UNUSUAL_ACTIVITY_ERROR_RETRY');
+      error.unusualActivityRetry = true;
+      error.email = email;
+      error.retryCount = retryCount;
+      
+      console.log('[异常活动恢复] 🔴 准备抛出错误:', {
+        message: error.message,
+        unusualActivityRetry: error.unusualActivityRetry,
+        email: error.email,
+        retryCount: error.retryCount
+      });
+      
+      throw error;
+      
+    } catch (error) {
+      console.error('[异常活动恢复] ❌ 恢复流程失败:', error.message);
+      this.tasklog({ message: `异常活动恢复失败: ${error.message}`, logID: 'Error-Info' });
+      throw error;
+    }
+  }
 }
 
 module.exports = CaptchaOperations;

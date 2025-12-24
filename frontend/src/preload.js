@@ -7,7 +7,7 @@ console.log('=== Preload script loaded ===');
 console.log('__dirname:', __dirname);
 
 // Load modules (sandbox must be disabled in main.js)
-let msGraphModule, hotmailModule, msGraphROPCModule, emailDbModule, authScriptModule, accountImporterModule, playwrightRegisterModule, oauthAutomationModule, proxyGeneratorModule, outlookAuthClientModule, accountDatabaseModule, addressGeneratorModule, twoFactorGeneratorModule;
+let msGraphModule, hotmailModule, msGraphROPCModule, emailDbModule, authScriptModule, accountImporterModule, playwrightRegisterModule, oauthAutomationModule, proxyGeneratorModule, outlookAuthClientModule, accountDatabaseModule, addressServiceWrapperModule, twoFactorGeneratorModule;
 try {
   const msGraphPath = path.join(__dirname, 'utils', 'msGraphDeviceCode.js');
   const hotmailPath = path.join(__dirname, 'utils', 'hotmailRegister.js');
@@ -19,7 +19,7 @@ try {
   const oauthAutomationPath = path.join(__dirname, 'utils', 'oauthAutomation.js');
   const proxyGeneratorPath = path.join(__dirname, 'utils', 'proxyGenerator.js');
   const outlookAuthClientPath = path.join(__dirname, 'utils', 'outlookAuthClient.js');
-  const addressGeneratorPath = path.join(__dirname, 'utils', 'addressGenerator.js');
+  const addressServiceWrapperPath = path.join(__dirname, 'utils', 'addressServiceWrapper.js');
   const twoFactorGeneratorPath = path.join(__dirname, 'utils', 'twoFactorGenerator.js');
   
   console.log('尝试加载模块:');
@@ -68,8 +68,8 @@ try {
   accountDatabaseModule = require(accountDatabasePath);
   console.log('  ✅ accountDatabaseModule loaded, exports:', Object.keys(accountDatabaseModule));
   
-  addressGeneratorModule = require(addressGeneratorPath);
-  console.log('  ✅ addressGeneratorModule loaded');
+  addressServiceWrapperModule = require(addressServiceWrapperPath);
+  console.log('  ✅ addressServiceWrapperModule loaded, exports:', Object.keys(addressServiceWrapperModule));
   
   twoFactorGeneratorModule = require(twoFactorGeneratorPath);
   console.log('  ✅ twoFactorGeneratorModule loaded');
@@ -91,7 +91,7 @@ try {
   proxyGeneratorModule = {};
   outlookAuthClientModule = {};
   accountDatabaseModule = { getAccountDatabase: () => null };
-  addressGeneratorModule = null;
+  addressServiceWrapperModule = null;
   twoFactorGeneratorModule = null;
 }
 
@@ -572,40 +572,36 @@ contextBridge.exposeInMainWorld('amazonBrowserAPI', {
 });
 console.log('✅ amazonBrowserAPI exposed');
 
-// Expose Address Generator API
+// Expose Address Generator API (via AddressService wrapper)
 console.log('正在暴露 addressGeneratorAPI 到 window...');
 contextBridge.exposeInMainWorld('addressGeneratorAPI', {
   generateRandom: async (count) => {
     console.log('addressGeneratorAPI.generateRandom called, count:', count);
-    if (!addressGeneratorModule) {
-      throw new Error('Address Generator module not available');
+    if (!addressServiceWrapperModule) {
+      throw new Error('Address Service Wrapper module not available');
     }
-    const generator = new addressGeneratorModule();
-    return await generator.generateRandomAddresses(count);
+    return await addressServiceWrapperModule.generateRandom(count);
   },
   generateByPostalCode: async (postalCode) => {
     console.log('addressGeneratorAPI.generateByPostalCode called, postalCode:', postalCode);
-    if (!addressGeneratorModule) {
-      throw new Error('Address Generator module not available');
+    if (!addressServiceWrapperModule) {
+      throw new Error('Address Service Wrapper module not available');
     }
-    const generator = new addressGeneratorModule();
-    return await generator.generateAddressByPostalCode(postalCode);
+    return await addressServiceWrapperModule.generateByPostalCode(postalCode);
   },
   generateByPostalCodes: async (postalCodes) => {
     console.log('addressGeneratorAPI.generateByPostalCodes called, count:', postalCodes.length);
-    if (!addressGeneratorModule) {
-      throw new Error('Address Generator module not available');
+    if (!addressServiceWrapperModule) {
+      throw new Error('Address Service Wrapper module not available');
     }
-    const generator = new addressGeneratorModule();
-    return await generator.generateAddressesByPostalCodes(postalCodes);
+    return await addressServiceWrapperModule.generateByPostalCodes(postalCodes);
   },
   formatForExport: (addresses, format) => {
     console.log('addressGeneratorAPI.formatForExport called, format:', format);
-    if (!addressGeneratorModule) {
-      throw new Error('Address Generator module not available');
+    if (!addressServiceWrapperModule) {
+      throw new Error('Address Service Wrapper module not available');
     }
-    const generator = new addressGeneratorModule();
-    return generator.formatAddressesForExport(addresses, format);
+    return addressServiceWrapperModule.formatForExport(addresses, format);
   }
 });
 console.log('✅ addressGeneratorAPI exposed');

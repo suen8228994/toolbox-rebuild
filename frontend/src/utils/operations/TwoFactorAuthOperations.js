@@ -169,6 +169,88 @@ class TwoFactorAuthOperations extends BaseOperations {
       });
     }
   }
+
+  /**
+   * 处理2FA自动设置流程（注册时直接绑定）
+   */
+  async handle2FASetup() {
+    try {
+      this.tasklog({ message: '注册完成，开始自动2FA设置', logID: 'RG-Info-Operate' });
+      
+      // 展开验证器应用
+      await this.expandAuthenticatorApp();
+      
+      // 获取2FA密钥
+      await this.get2FASecret();
+      this.tasklog({ message: '2FA密钥获取成功', logID: 'RG-Info-Operate' });
+      
+      // 生成TOTP码
+      const otp = await this.getStableTOTP();
+      
+      // 填充和提交
+      await this.fill2FACode(otp.code);
+      await this.submit2FA();
+      
+      this.tasklog({
+        message: '绑定2FA成功',
+        logID: 'RG-Bind-Otp',
+        account: {
+          userEmail: this.accountInfo?.user,
+          otpSecret: this.accountInfo?.otpSecret
+        }
+      });
+      
+      return true;
+    } catch (error) {
+      this.tasklog({ 
+        message: `2FA设置失败: ${error.message}`, 
+        logID: 'Error-2FA' 
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * 处理2FA手动设置流程（登录后绑定）
+   */
+  async handle2FAManualSetup() {
+    try {
+      this.tasklog({ message: '准备手动2FA设置', logID: 'RG-Info-Operate' });
+      
+      // 展开验证器应用
+      await this.expandAuthenticatorApp();
+      
+      // 获取2FA密钥
+      await this.get2FASecret();
+      this.tasklog({ message: '2FA密钥获取成功', logID: 'RG-Info-Operate' });
+      
+      // 生成TOTP码
+      const otp = await this.getStableTOTP();
+      
+      // 填充2FA验证码
+      await this.fill2FACode(otp.code);
+      
+      // 提交2FA
+      await this.submit2FA();
+      
+      this.tasklog({
+        message: '绑定2FA成功',
+        logID: 'RG-Bind-Otp',
+        account: {
+          userEmail: this.accountInfo?.user,
+          otpSecret: this.accountInfo?.otpSecret
+        }
+      });
+      
+      return true;
+    } catch (error) {
+      this.tasklog({ 
+        message: `2FA手动设置失败: ${error.message}`, 
+        logID: 'Error-2FA' 
+      });
+      throw error;
+    }
+  }
 }
 
 module.exports = TwoFactorAuthOperations;

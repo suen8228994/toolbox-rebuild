@@ -81,6 +81,53 @@ class EmailVerificationOperations extends BaseOperations {
   updateRegisterTime(time) {
     this.registerTime = time;
   }
+
+  /**
+   * 填写邮箱验证码
+   */
+  async fillEmailCode(code) {
+    this.tasklog({ message: '填写邮箱验证码', logID: 'RG-Info-Operate' });
+    
+    const selectors = [
+      'input.cvf-widget-input.cvf-widget-input-code.cvf-autofocus',
+      'input[name="cvf_captcha_input"]',
+      'input[placeholder*="验证码"]',
+      'input[placeholder*="code"]',
+      'input[type="text"][aria-label*="code"]'
+    ];
+    
+    let inputLocator = null;
+    for (const selector of selectors) {
+      const element = await this.page.$(selector);
+      if (element) {
+        inputLocator = this.page.locator(selector).first();
+        break;
+      }
+    }
+    
+    if (!inputLocator) {
+      throw new Error('未找到邮箱验证码输入框');
+    }
+    
+    await this.fillInput(inputLocator, code, {
+      title: '填写邮箱验证码'
+    });
+  }
+
+  /**
+   * 提交邮箱验证
+   */
+  async submitEmailVerification() {
+    this.tasklog({ message: '提交邮箱验证', logID: 'RG-Info-Operate' });
+    
+    const submitButton = this.page.locator('#cvf-submit-otp-button, button[type="submit"]').first();
+    await this.clickElement(submitButton, {
+      title: '提交邮箱验证'
+    });
+    
+    await this.page.waitForLoadState('networkidle');
+    await this.waitRandom(2000, 3000);
+  }
 }
 
 module.exports = EmailVerificationOperations;

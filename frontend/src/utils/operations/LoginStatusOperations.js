@@ -66,6 +66,177 @@ class LoginStatusOperations extends BaseOperations {
     });
     return false;
   }
+
+  /**
+   * 检测是否是登录页面
+   */
+  async detectLoginPage() {
+    try {
+      const pageContent = await this.page.content();
+      return pageContent.includes('Amazon登录') ||
+             pageContent.includes('Sign in') ||
+             pageContent.includes('Email or mobile phone number');
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * 检测是否强制要求电话验证
+   * 检测德语/英语版本的"添加手机号"强制验证页面
+   */
+  async detectForcedPhoneVerification() {
+    try {
+      const pageContent = await this.page.content();
+      const url = this.page.url();
+      
+      // 检查是否在电话验证页面
+      const isPhoneVerifPage = 
+        url.includes('/ap/register') &&
+        (pageContent.includes('请输入您的电话号码') ||
+         pageContent.includes('Add a phone number') ||
+         pageContent.includes('Geben Sie Ihre Telefonnummer ein') ||
+         pageContent.includes('Entrer votre numéro de téléphone'));
+      
+      // 排除Two-Step Verification页面
+      const isTwoStepPage = 
+        pageContent.includes('两步验证') ||
+        pageContent.includes('Two-Step Verification');
+      
+      return isPhoneVerifPage && !isTwoStepPage;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * 检测Two-Step Verification（双因素验证）页面
+   */
+  async detectTwoStepVerification() {
+    try {
+      // 使用元素检测而不是文本，支持多语言
+      const radioButtons = await this.page.locator('input[type="radio"]').count();
+      if (radioButtons === 0) return false;
+      
+      const pageContent = await this.page.content();
+      return pageContent.includes('选择如何接收验证码') ||
+             pageContent.includes('Choose how to verify') ||
+             pageContent.includes('Wählen Sie') ||
+             pageContent.includes('Choisissez');
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * 检测Two-Step Verification设置说明页面
+   */
+  async detectTSVSetupHowtoPage() {
+    try {
+      const url = this.page.url();
+      const pageContent = await this.page.content();
+      
+      // URL特征检查
+      const isURLMatch = url.includes('/a/settings/approval/setup/howto');
+      
+      // 页面内容检查
+      const isContentMatch = 
+        pageContent.includes('两步验证如何工作') ||
+        pageContent.includes('How Two-Step Verification works') ||
+        pageContent.includes('两步验证保护您的账户') ||
+        pageContent.includes('Two-Step Verification helps protect') ||
+        pageContent.includes('Authenticate with your phone') ||
+        pageContent.includes('Got it');
+      
+      return isURLMatch || isContentMatch;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * 检测是否出现拼图/验证码页面
+   */
+  async detectPuzzlePage() {
+    try {
+      const pageContent = await this.page.content();
+      const hasCanvas = await this.page.$$('canvas').then(elements => elements.length > 0).catch(() => false);
+      
+      return hasCanvas || 
+             pageContent.includes('captcha') ||
+             pageContent.includes('puzzle') ||
+             pageContent.includes('验证') ||
+             pageContent.includes('验证码');
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * 检测是否出现异常活动错误
+   */
+  async detectUnusualActivityError() {
+    try {
+      const pageContent = await this.page.content();
+      return pageContent.includes('我们检测到您的账户中出现异常活动') ||
+             pageContent.includes('We detected unusual activity') ||
+             pageContent.includes('异常活动') ||
+             pageContent.includes('unusual activity');
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * 智能检测当前页面状态
+   * 返回页面类型，用于决定下一步操作
+   */
+  async detectCurrentPageState() {
+    try {
+      const url = this.page.url();
+      const pageContent = await this.page.content();
+
+      // 异常活动检测
+      if (await this.detectUnusualActivityError()) {
+        return 'UNUSUAL_ACTIVITY_PAGE';
+      }
+
+      // Two-Step Verification 设置说明页面
+      if (await this.detectTSVSetupHowtoPage()) {
+        return 'TSV_SETUP_HOWTO_PAGE';
+      }
+
+      // 两步验证选择页面
+      if (await this.detectTwoStepVerification()) {
+        return 'TSV_CHOICE_PAGE';
+      }
+
+      // 强制电话验证页面
+      if (await this.detectForcedPhoneVerification()) {
+        return 'FORCED_PHONE_VERIFICATION_PAGE';
+      }
+
+      // 登录页面
+      if (await this.detectLoginPage()) {
+        return 'LOGIN_PAGE';
+      }
+
+      // 拼图/验证码页面
+      if (await this.detectPuzzlePage()) {
+        return 'CAPTCHA_PAGE';
+      }
+
+      // 注册页面
+      if (url.includes('/ap/register') || pageContent.includes('创建Amazon账户') ||
+          pageContent.includes('Create your Amazon account')) {
+        return 'REGISTER_PAGE';
+      }
+
+      return 'UNKNOWN_PAGE';
+    } catch (error) {
+      return 'UNKNOWN_PAGE';
+    }
+  }
 }
 
 module.exports = LoginStatusOperations;

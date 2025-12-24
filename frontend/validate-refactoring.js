@@ -50,8 +50,8 @@ async function quickValidation() {
   // 测试2: 检查主类是否可以正常加载
   console.log('[2] 检查主类加载...');
   try {
-    const AmazonRegisterCoreRefactored = require('./src/utils/amazonRegisterCoreRefactored');
-    console.log('  ✅ AmazonRegisterCoreRefactored');
+    const AmazonRegisterCore = require('./src/utils/amazonRegisterCore');
+    console.log('  ✅ AmazonRegisterCore');
     results.push({ test: '主类加载', status: 'PASS' });
     console.log('\n✅ 主类加载成功\n');
   } catch (error) {
@@ -110,18 +110,17 @@ async function quickValidation() {
   // 测试4: 检查主类实例化
   console.log('[4] 检查主类实例化...');
   try {
-    const AmazonRegisterCoreRefactored = require('./src/utils/amazonRegisterCoreRefactored');
+    const AmazonRegisterCore = require('./src/utils/amazonRegisterCore');
     
     const mockPage = { url: () => 'https://www.amazon.com' };
     const mockConfig = {
       page: mockPage,
-      user: 'test@example.com',
-      pass: 'TestPass123',
-      refreshToken: 'mock_token',
-      clientId: 'mock_client_id'
+      email: 'test@example.com',
+      password: 'TestPass123',
+      emailLine: 'test@example.com----TestPass123----mock_client_id----mock_refresh_token'
     };
     
-    const core = new AmazonRegisterCoreRefactored(mockConfig);
+    const core = new AmazonRegisterCore(mockConfig);
     
     if (!core.page) throw new Error('page 不存在');
     if (!core.config) throw new Error('config 不存在');
